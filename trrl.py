@@ -28,6 +28,8 @@ from imitation.rewards import reward_nets
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 from imitation.rewards.reward_nets import BasicRewardNet
 
+from reward_function import RwdFromRwdNet
+
 from typing import Callable, Iterable, Iterator, Mapping, Optional, Type, overload
 
 
@@ -99,7 +101,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
         pass
 
-    def est_adv_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
+    def est_adv_fn_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
                                       n_timesteps: int, n_episodes: int) -> torch.Tensor:
         """
         Use Monte-Carlo simulation to estimation the advantage function of the given state and action under the
@@ -180,27 +182,33 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         return (q-v)/n_episodes
 
-    def train_new_policy_under_new_reward(self) -> policies.BasePolicy:
+    def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
         """
         Update the policy to maximise the rewards under the new reward function. The SAC algorithm will be used.
         """
         rng = np.random.default_rng(0)
-        env = make_vec_env(
+        venv = make_vec_env(
             env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
             n_envs=self.venv.num_envs,
             rng=rng,
         )
-        env = TransformReward(env=env, lambda r:)
+        _ = venv.reset()
+
+        rwd_fn = RwdFromRwdNet(rwd_net=self._reward_net)
+        venv_with_cur_rwd_net = RewardVecEnvWrapper(
+            venv=venv,
+            reward_fn=rwd_fn
+        )
+
         new_policy = SAC(
             policy=sac_policies.SACPolicy,
-            env=self.venv,
+            env=venv_with_cur_rwd_net,
             batch_size=64,
             ent_coef=0.0,
             learning_rate=0.0003,
         )
-
-
-        pass
+        
+        return new_policy
     
     def train(self, total_timesteps, callback: Optional[Callable[[int], None]] = None):
         """
