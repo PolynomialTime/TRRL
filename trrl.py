@@ -192,13 +192,15 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             n_envs=self.venv.num_envs,
             rng=rng,
         )
-        _ = venv.reset()
 
+        # setup an env with the reward being the current reward network
         rwd_fn = RwdFromRwdNet(rwd_net=self._reward_net)
         venv_with_cur_rwd_net = RewardVecEnvWrapper(
             venv=venv,
             reward_fn=rwd_fn
         )
+
+        _ = venv_with_cur_rwd_net.reset()
 
         new_policy = SAC(
             policy=sac_policies.SACPolicy,
@@ -207,6 +209,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             ent_coef=0.0,
             learning_rate=0.0003,
         )
+
+        venv_with_cur_rwd_net.close()
+        venv.close()
         
         return new_policy
     
