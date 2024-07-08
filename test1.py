@@ -68,17 +68,17 @@ def sample_expert_transitions():
 
     print("Sampling expert transitions.")
 
-    '''
+    
     rollouts = rollout.generate_trajectories(
         expert,
         env,
-        rollout.make_sample_until(min_timesteps=None, min_episodes=1),
+        rollout.make_sample_until(min_timesteps=None, min_episodes=4),
         rng=rng,
         starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
         starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
     )
+    
     '''
-
     rollouts = rollout.generate_transitions(
         expert,
         env,
@@ -88,15 +88,18 @@ def sample_expert_transitions():
         starting_action=np.array([0], dtype=np.integer),
         truncate=True,
     )
-
-    #return rollout.flatten_trajectories(rollouts)
-    return rollouts
+    '''
+    return rollout.flatten_trajectories(rollouts)
+    #return rollouts
 
 
 
 transitions = sample_expert_transitions()
+
+#transitions.obs.shape[0]
 #x, y = transitions.obs.shape
-#print(transitions)
+print(len(transitions))
+print(transitions)
 '''
 bc_trainer = bc.BC(
     observation_space=env.observation_space,

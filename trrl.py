@@ -4,6 +4,8 @@ Trains a reward function whose induced policy is monotonically improved towards 
 """
 from typing import Optional
 
+import copy
+
 import torch
 import numpy as np
 
@@ -77,6 +79,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         """
         self._rwd_opt_cls = rwd_opt_cls,
         self._old_policy = old_policy,
+        self._old_reward_net = None,
         self.coeff_for_lower_bound = coeff_for_lower_bound,
         self.coeff_for_upper_bound = coeff_for_upper_bound,
         #self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
@@ -89,22 +92,25 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._rwd_opt_cls=rwd_opt_cls,
         self._opt = self._rwd_opt_cls(self._reward_net.parameters())
         self.discount=discount,
+        self.itr_counter = 0, # counter for rounds of reward-policy iterations
         self.custom_logger=custom_logger
 
 
-    def init_reward_func(self) -> np.ndarray:
+    def reset(self, reward_net: reward_nets.RewardNet = None):
+        """Reset the reward network and the iteration counter.
+        
+        Args:
+            reward_net: The reward network to set as.
         """
-        The initial reward should be all ONE.
-        """
-        return
+        self._reward_net = reward_net
+        self.itr_counter = 0
 
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
         pass
 
     def est_adv_fn_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
                                       n_timesteps: int, n_episodes: int) -> torch.Tensor:
-        """
-        Use Monte-Carlo simulation to estimation the advantage function of the given state and action under the
+        """Use Monte-Carlo simulation to estimation the advantage function of the given state and action under the
         old policy and the current reward network
 
         Advantage function: A^{\pi_{old}}_{r_\theta}(s,a) = Q^{\pi_{old}}_{r_\theta}(s,a) - V^{\pi_{old}}_{r_\theta}(s,a)
@@ -114,6 +120,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             starting_action: The action to estimate the advantage function for.
             n_timesteps: The length of a rollout.
             n_episodes: The number of simulated rollouts.
+
+        Returns:
+            the estimated value of advantage function at `starting_state` and `starting_action`
         """
 
         # Generate trajectories using the old policy, with the staring state and action being those occurring in expert
@@ -183,8 +192,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         return (q-v)/n_episodes
 
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
-        """
-        Update the policy to maximise the rewards under the new reward function. The SAC algorithm will be used.
+        """Update the policy to maximise the rewards under the new reward function. The SAC algorithm will be used.
+
+        Returns:
+            A gym SAC policy optimised for the current reward network
         """
         rng = np.random.default_rng(0)
         venv = make_vec_env(
@@ -215,17 +226,54 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         
         return new_policy
     
-    def train(self, total_timesteps, callback: Optional[Callable[[int], None]] = None):
+    def update_reward(self, n_epochs: int) -> reward_nets.RewardNet:
+        """Update reward network by gradient decent for `n_steps` steps. The loss is adapted from the constrained optimisation problem of the
+        trust region reward learning by Lagrangian multipliers (moving the constraints into the objective function).
+        
+        Args:
+            n_steps: The number of steps for gradient decent
+        
+        Returns:
+            The updated reward network
+        """
+        # The initial reward should be all ONE.
+        # Reward tensor shape: batch x traj len
+        for epoch in range(n_epochs):
+            # Do a complete pass on the demonstrations. Sampling batches for performing SGD.
+            for demos in 
+            #TODO: implement the batch samlping function
+
+            if self.itr_counter == 0:
+                init_rewards = torch.zeros((self.demo_batch_size, self.demonstrations[0].obs.shape[0]))
+                reward_diff = self.reward_net() - init_rewards
+            else:
+                pass
+        
+
+
+    
+    def train(self, total_itrs: int, reward_training_epochs: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
-            total_timesteps: An upper bound on the number of transitions to sample
-                from the environment during training.
+            total_rounds: An upper bound on the iterations of training.
+            reward_training_steps: An upper bound on the gradient steps for training the reward network.
             callback: A function called at the end of every round which takes in a
                 single argument, the round number. Round numbers are in
                 `range(total_timesteps // self.gen_train_timesteps)`.
         """
-        pass
+        # Iteratively train a reward function and the induced policy.
+        while self.itr_counter < total_itrs:
+            self.itr_counter += 1
+            # Update the reward network.
+            self._reward_net = self.update_reward(n_epochs=reward_training_epochs)
+            self._old_reward_net = copy.deepcopy(self._reward_net)
+            # Update the policy as the one optimal for the updated reward.
+            self._old_policy = self.train_new_policy_for_new_reward()
 
     @property
     def policy(self) -> policies.BasePolicy:
         return self._old_policy
+    
+    @property
+    def reward_net(self) -> reward_nets.RewardNet:
+        return self._reward_net
