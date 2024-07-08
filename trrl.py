@@ -12,7 +12,6 @@ import numpy as np
 from stable_baselines3 import SAC
 from stable_baselines3.common import base_class, policies, vec_env
 from stable_baselines3.sac import policies as sac_policies
-sac_policies.SACPolicy
 
 from gymnasium.wrappers.transform_reward import TransformReward
 
@@ -237,9 +236,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             The updated reward network
         """
         # The initial reward should be all ONE.
-        # Reward tensor shape: batch x traj len
+        # Reward tensor shape = batch size x traj len
         for epoch in range(n_epochs):
-            # Do a complete pass on the demonstrations. Sampling batches for performing SGD.
+            # Do a complete pass on the demonstrations, i.e., sampling enough batches for performing SGD.
             for demos in 
             #TODO: implement the batch samlping function
 
