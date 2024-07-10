@@ -23,7 +23,7 @@ env = make_vec_env(
     rng=rng,
     #post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
 )
-
+'''
 x = env.unwrapped.envs[0].unwrapped.state
 print(x)
 if env.num_envs > 1:
@@ -31,7 +31,7 @@ if env.num_envs > 1:
         x = np.append([x], [env.unwrapped.envs[idx].unwrapped.state], axis=0)
         
 print(x)
-
+'''
  
 
 def train_expert():
@@ -72,7 +72,7 @@ def sample_expert_transitions():
     rollouts = rollout.generate_trajectories(
         expert,
         env,
-        rollout.make_sample_until(min_timesteps=None, min_episodes=4),
+        rollout.make_sample_until(min_timesteps=None, min_episodes=2),
         rng=rng,
         starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
         starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)

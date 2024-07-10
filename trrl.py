@@ -5,6 +5,7 @@ Trains a reward function whose induced policy is monotonically improved towards 
 from typing import Optional
 
 import copy
+import tqdm
 
 import torch
 import numpy as np
@@ -49,6 +50,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         demonstrations: base.AnyTransitions,
         old_policy: policies.BasePolicy,
         demo_batch_size: int,
+        demo_minibatch_size: int,
         custom_logger: Optional[logger.HierarchicalLogger] = None,
         reward_net: reward_nets.RewardNet,
         discount: np.float32,
@@ -63,9 +65,18 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         Args:
             venv: The vectorized environment to train on.
-            demonstrations: Demonstrations to use for training.
+            demonstrations: Demonstrations to use for training. The input demo should be flatened.
             old_policy: The policy model to use for the old policy (Stable Baseline 3).
-            demo_batch_size: The number of samples in each batch of expert data.
+            demo_batch_size: The number of samples in each batch of expert data. In principle, 
+                the length of a trajectory should be a factor of mini batch size, i.e., a bacth of
+                complete trajectories are used in gradient descent.
+            demo_minibatch_size: size of minibatch to calculate gradients over.
+                The gradients are accumulated until the entire batch is
+                processed before making an optimization step. This is
+                useful in GPU training to reduce memory usage, since
+                fewer examples are loaded into memory at once,
+                facilitating training with larger batch sizes, but is
+                generally slower. Must be a factor of `demo_batch_size`.
             custom_logger: Where to log to; if None (default), creates a new logger.
             reward_net: reward network.
             discount: discount factor. A value between 0 and 1.
@@ -92,12 +103,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.device = device,
         self.demonstrations=demonstrations,
         self.demo_batch_size=demo_batch_size,
+        self.demo_minibatch_size = demo_minibatch_size
+        if self.demo_batch_size % self.demo_minibatch_size != 0:
+            raise ValueError("Batch size must be a multiple of minibatch size.")
         self.venv=venv,
         self._reward_net=reward_net.to(device),
         self._rwd_opt_cls=rwd_opt_cls,
-        self._opt = self._rwd_opt_cls(self._reward_net.parameters())
+        self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters())
         self.discount=discount,
-        self.itr_counter = 0, # counter for rounds of reward-policy iterations
         self.custom_logger=custom_logger
 
 
@@ -108,7 +121,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             reward_net: The reward network to set as.
         """
         self._reward_net = reward_net
-        self.itr_counter = 0
 
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
         pass
@@ -148,14 +160,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
                             )
 
-            obs, acts, infos, next_obs, dones, rews = rollout.generate_transitions(
+            obs, acts, infos, next_obs, dones, rews = rollout.generate_trajectories(
                 self._old_policy,
                 env,
                 n_timesteps=n_timesteps,
                 rng=rng,
                 starting_state=starting_state,
                 starting_action=starting_action,
-                truncate=True,
+                #truncate=True,
             )
 
             for time_idx in range(n_timesteps):
@@ -177,7 +189,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
                             )
 
-            obs, acts, infos, next_obs, dones, rews = rollout.generate_transitions(
+            obs, acts, infos, next_obs, dones = rollout.generate_trajectories(
                 self._old_policy,
                 env,
                 n_timesteps=n_timesteps,
@@ -233,46 +245,45 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         
         return new_policy
     
-    def update_reward(self, n_epochs: int) -> reward_nets.RewardNet:
+    def update_reward(self, cur_round: int) -> reward_nets.RewardNet:
         """Update reward network by gradient decent for `n_steps` steps. The loss is adapted from the constrained optimisation problem of the
         trust region reward learning by Lagrangian multipliers (moving the constraints into the objective function).
         
         Args:
             n_steps: The number of steps for gradient decent
-        
+            cur_round: The number of current round of reward-policy iteration
         Returns:
             The updated reward network
         """
-        for epoch in range(n_epochs):
-            # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing SGD.
-            for demos in 
-            #TODO: implement the batch samlping function
-
-            if self.itr_counter == 0:
-                # The initial reward should be all ONE.
-                # Reward tensor shape = batch size x traj len
-                init_rewards = torch.zeros((self.demo_batch_size, self.demonstrations[0].obs.shape[0]))
-                reward_diff = self.reward_net() - init_rewards
-            else:
-                pass
+        self._rwd_opt.zero_grad()
+        # Do a complete pass on the demonstrations, i.e., sampling sufficient mini batches for performing GD.
+        if cur_round == 0:
+            # The initial reward should be all ONE.
+            # Reward tensor shape = 1 x minibatch size 
+            init_rewards = torch.zeros((1, self.demo_minibatch_size))
+            #TODO: estimate the advantage function
+            reward_diff = self.reward_net() - init_rewards
+        else:
+            #TODO: add the two penality terms to the loss
+            #TODO: loss backward
+            pass
         
 
 
     
-    def train(self, total_itrs: int, reward_training_epochs: int, callback: Optional[Callable[[int], None]] = None):
+    def train(self, n_rounds: int, reward_training_epochs: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
-            total_rounds: An upper bound on the iterations of training.
+            n_rounds: An upper bound on the iterations of training.
             reward_training_steps: An upper bound on the gradient steps for training the reward network.
             callback: A function called at the end of every round which takes in a
                 single argument, the round number. Round numbers are in
                 `range(total_timesteps // self.gen_train_timesteps)`.
         """
         # Iteratively train a reward function and the induced policy.
-        while self.itr_counter < total_itrs:
-            self.itr_counter += 1
+        for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the reward network.
-            self._reward_net = self.update_reward(n_epochs=reward_training_epochs)
+            self._reward_net = self.update_reward(cur_round=r)
             self._old_reward_net = copy.deepcopy(self._reward_net)
             # Update the policy as the one optimal for the updated reward.
             self._old_policy = self.train_new_policy_for_new_reward()
@@ -367,7 +378,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # take minibatch slice (this creates views so no memory issues)
             expert_batch = {k: v[start:end] for k, v in expert_samples.items()}
 
-            # Concatenate rollouts, and label each row as expert or generator.
             obs = expert_batch["obs"]
             acts = expert_batch["acts"]
             next_obs = expert_batch["next_obs"]
