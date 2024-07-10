@@ -9,8 +9,10 @@ import copy
 import torch
 import numpy as np
 
+import dataclasses
+
 from stable_baselines3 import SAC
-from stable_baselines3.common import base_class, policies, vec_env
+from stable_baselines3.common import base_class, policies, vec_env, distributions
 from stable_baselines3.sac import policies as sac_policies
 
 from gymnasium.wrappers.transform_reward import TransformReward
@@ -50,8 +52,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         custom_logger: Optional[logger.HierarchicalLogger] = None,
         reward_net: reward_nets.RewardNet,
         discount: np.float32,
-        coeff_for_lower_bound: np.float32,
-        coeff_for_upper_bound: np.float32,
+        lower_bound_coef: np.float32,
+        upper_bound_coef: np.float32,
+        ent_coef: np.float32 = 0.01,
         rwd_opt_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         device: torch.device = torch.device("cpu"),
         **kwargs,
@@ -62,13 +65,15 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             venv: The vectorized environment to train on.
             demonstrations: Demonstrations to use for training.
             old_policy: The policy model to use for the old policy (Stable Baseline 3).
+            demo_batch_size: The number of samples in each batch of expert data.
             custom_logger: Where to log to; if None (default), creates a new logger.
             reward_net: reward network.
             discount: discount factor. A value between 0 and 1.
-            coeff_for_lower_bound: coefficient for r_old - r_new,
-            coeff_for_upper_bound: coefficient for the max difference between r_new and r_old.
+            lower_bound_coef: coefficient for r_old - r_new.
+            upper_bound_coef: coefficient for the max difference between r_new and r_old.
                                     In the practical algorithm, the max difference is replaced
                                     by an average distance for the differentiability.
+            ent_coef: coefficient for policy entropy.
             rwd_opt_cls: The optimizer for reward training
             kwargs: Keyword arguments to pass to the RL algorithm constructor.
 
@@ -79,8 +84,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._rwd_opt_cls = rwd_opt_cls,
         self._old_policy = old_policy,
         self._old_reward_net = None,
-        self.coeff_for_lower_bound = coeff_for_lower_bound,
-        self.coeff_for_upper_bound = coeff_for_upper_bound,
+        self.ent_coef = ent_coef,
+        self.lower_bound_coef = lower_bound_coef,
+        self.upper_bound_coef = upper_bound_coef,
         #self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
         self.venv = venv,
         self.device = device,
@@ -157,7 +163,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 action = torch.as_tensor(acts[time_idx], self.device),
                 next_state = torch.as_tensor(next_obs[time_idx], self.device),
                 done = torch.as_tensor(dones[time_idx], self.device),
-                q += torch.pow(torch.as_tensor(self.discount), time_idx) * self._reward_net(state, action, next_state, done)
+                q += torch.pow(torch.as_tensor(self.discount), time_idx) * (self._reward_net(state, action, next_state, done) + self.ent_coef *
+                                                                             self._get_log_policy_act_prob(obs_th=state, acts_th=action))
             env.close()
 
         # estimate state value V^{\pi_{old}}_{r_\theta}(s,a)
@@ -185,7 +192,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 action = torch.as_tensor(acts[time_idx], self.device),
                 next_state = torch.as_tensor(next_obs[time_idx], self.device),
                 done = torch.as_tensor(dones[time_idx], self.device),
-                v += torch.pow(torch.as_tensor(self.discount), time_idx) * self._reward_net(state, action, next_state, done)
+                v += torch.pow(torch.as_tensor(self.discount), time_idx) * (self._reward_net(state, action, next_state, done) + self.ent_coef *
+                                                                             self._get_log_policy_act_prob(obs_th=state, acts_th=action))
             env.close()
 
         return (q-v)/n_episodes
@@ -216,7 +224,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             policy=sac_policies.SACPolicy,
             env=venv_with_cur_rwd_net,
             batch_size=64,
-            ent_coef=0.0,
+            ent_coef=self.ent_coef,
             learning_rate=0.0003,
         )
 
@@ -235,14 +243,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         Returns:
             The updated reward network
         """
-        # The initial reward should be all ONE.
-        # Reward tensor shape = batch size x traj len
         for epoch in range(n_epochs):
-            # Do a complete pass on the demonstrations, i.e., sampling enough batches for performing SGD.
+            # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing SGD.
             for demos in 
             #TODO: implement the batch samlping function
 
             if self.itr_counter == 0:
+                # The initial reward should be all ONE.
+                # Reward tensor shape = batch size x traj len
                 init_rewards = torch.zeros((self.demo_batch_size, self.demonstrations[0].obs.shape[0]))
                 reward_diff = self.reward_net() - init_rewards
             else:
@@ -276,3 +284,106 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     @property
     def reward_net(self) -> reward_nets.RewardNet:
         return self._reward_net
+    
+    def _get_log_policy_act_prob(
+        self,
+        obs_th: torch.Tensor,
+        acts_th: torch.Tensor,
+    ) -> Optional[torch.Tensor]:
+        """Evaluates the given actions on the given observations.
+
+        Args:
+            obs_th: A batch of observations.
+            acts_th: A batch of actions.
+
+        Returns:
+            A batch of log policy action probabilities.
+        """
+        if isinstance(self.policy, policies.ActorCriticPolicy):
+            # policies.ActorCriticPolicy has a concrete implementation of
+            # evaluate_actions to generate log_policy_act_prob given obs and actions.
+            _, log_policy_act_prob_th, _ = self.policy.evaluate_actions(
+                obs_th,
+                acts_th,
+            )
+        elif isinstance(self.policy, sac_policies.SACPolicy):
+            gen_algo_actor = self.policy.actor
+            assert gen_algo_actor is not None
+            # generate log_policy_act_prob from SAC actor.
+            mean_actions, log_std, _ = gen_algo_actor.get_action_dist_params(obs_th)
+            assert isinstance(
+                gen_algo_actor.action_dist,
+                distributions.SquashedDiagGaussianDistribution,
+            )  # Note: this is just a hint to mypy
+            distribution = gen_algo_actor.action_dist.proba_distribution(
+                mean_actions,
+                log_std,
+            )
+            # SAC applies a squashing function to bound the actions to a finite range
+            # `acts_th` need to be scaled accordingly before computing log prob.
+            # Scale actions only if the policy squashes outputs.
+            assert self.policy.squash_output
+            scaled_acts = self.policy.scale_action(acts_th.numpy(force=True))
+            scaled_acts_th = torch.as_tensor(scaled_acts, device=mean_actions.device)
+            log_policy_act_prob_th = distribution.log_prob(scaled_acts_th)
+        else:
+            return None
+        return log_policy_act_prob_th
+    
+    def _make_reward_train_batches(
+        self,
+    ) -> Iterator[Mapping[str, torch.Tensor]]:
+        """Build and return training minibatches for the reward update.
+
+        Args:
+            expert_samples: Same as expert demonstrations.
+
+        Returns:
+            The training minibatch: state, action, next state, dones.
+        """
+        batch_size = self.demo_batch_size
+
+        expert_samples = self.demonstrations
+
+        # Guarantee that Mapping arguments are in mutable form.
+        expert_samples = dict(expert_samples)
+
+        # Convert applicable Tensor values to NumPy.
+        for field in dataclasses.fields(types.Transitions):
+            k = field.name
+            if k == "infos":
+                continue
+            if isinstance(expert_samples[k], torch.Tensor):
+                expert_samples[k] = expert_samples[k].detach().numpy()
+
+        assert isinstance(expert_samples["obs"], np.ndarray)
+
+        # Check dimensions.
+        assert batch_size == len(expert_samples["acts"])
+        assert batch_size == len(expert_samples["next_obs"])
+
+        for start in range(0, batch_size, self.demo_minibatch_size):
+            end = start + self.demo_minibatch_size
+            # take minibatch slice (this creates views so no memory issues)
+            expert_batch = {k: v[start:end] for k, v in expert_samples.items()}
+
+            # Concatenate rollouts, and label each row as expert or generator.
+            obs = expert_batch["obs"]
+            acts = expert_batch["acts"]
+            next_obs = expert_batch["next_obs"]
+            dones = expert_batch["dones"]
+
+            obs_th, acts_th, next_obs_th, dones_th = self.reward_net.preprocess(
+                obs,
+                acts,
+                next_obs,
+                dones,
+            )
+            batch_dict = {
+                "state": obs_th,
+                "action": acts_th,
+                "next_state": next_obs_th,
+                "done": dones_th,
+            }
+
+            return batch_dict

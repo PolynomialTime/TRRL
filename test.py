@@ -46,3 +46,4 @@ actions = np.repeat(starting_action, repeats=[4], axis=0)
 
 print(wenv.step(actions))
 
+
