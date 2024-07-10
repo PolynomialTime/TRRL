@@ -13,24 +13,19 @@ import numpy as np
 import dataclasses
 
 from stable_baselines3 import SAC
-from stable_baselines3.common import base_class, policies, vec_env, distributions
+from stable_baselines3.common import policies, vec_env, distributions
 from stable_baselines3.sac import policies as sac_policies
 
-from gymnasium.wrappers.transform_reward import TransformReward
-
 from imitation.algorithms import base as algo_base
-from imitation.algorithms.adversarial import common
 from imitation.algorithms import base
 
 from imitation.data import rollout, types
-from imitation.data.wrappers import RolloutInfoWrapper
 
 from imitation.util import logger, util
 from imitation.util.util import make_vec_env
 
 from imitation.rewards import reward_nets
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
-from imitation.rewards.reward_nets import BasicRewardNet
 
 from reward_function import RwdFromRwdNet
 
