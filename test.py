@@ -42,8 +42,9 @@ wenv = RewardVecEnvWrapper(
 
 starting_action = np.array([0], dtype=np.integer)
 
-actions = np.repeat(starting_action, repeats=[4], axis=0)
+#actions = np.repeat(starting_action, repeats=[4], axis=0)
 
-print(wenv.step(actions))
+#print(wenv.step(actions))
 
-
+loss = torch.zeros((1,1))
+print(loss)

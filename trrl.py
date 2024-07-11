@@ -49,8 +49,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         custom_logger: Optional[logger.HierarchicalLogger] = None,
         reward_net: reward_nets.RewardNet,
         discount: np.float32,
-        lower_bound_coef: np.float32,
-        upper_bound_coef: np.float32,
+        avg_diff_coef: np.float32,
+        l2_norm_coef: np.float32,
+        l2_norm_upper_bound: np.float32,
         ent_coef: np.float32 = 0.01,
         rwd_opt_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         device: torch.device = torch.device("cpu"),
@@ -75,10 +76,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger: Where to log to; if None (default), creates a new logger.
             reward_net: reward network.
             discount: discount factor. A value between 0 and 1.
-            lower_bound_coef: coefficient for r_old - r_new.
-            upper_bound_coef: coefficient for the max difference between r_new and r_old.
+            avg_diff_coef: coefficient for r_old - r_new.
+            l2_norm_coef: coefficient for the max difference between r_new and r_old.
                                     In the practical algorithm, the max difference is replaced
                                     by an average distance for the differentiability.
+            l2_norm_upper_bound: Upper bound for the l2 norm of the difference between current and old reward net
             ent_coef: coefficient for policy entropy.
             rwd_opt_cls: The optimizer for reward training
             kwargs: Keyword arguments to pass to the RL algorithm constructor.
@@ -91,8 +93,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._old_policy = old_policy,
         self._old_reward_net = None,
         self.ent_coef = ent_coef,
-        self.lower_bound_coef = lower_bound_coef,
-        self.upper_bound_coef = upper_bound_coef,
+        self.avg_diff_coef = avg_diff_coef,
+        self.l2_norm_coef = l2_norm_coef,
+        self.l2_norm_upper_bound = l2_norm_upper_bound
         #self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
         self.venv = venv,
         self.device = device,
@@ -116,6 +119,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             reward_net: The reward network to set as.
         """
         self._reward_net = reward_net
+        self._old_reward_net = None
 
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
         pass
@@ -146,7 +150,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         rng = np.random.default_rng(0)
 
         # estimate state-action value Q^{\pi_{old}}_{r_\theta}(s,a)
-        q = torch.zeros(1)
+        q = torch.zeros(1).to(self.device)
         for ep_idx in range(n_episodes):
             env = make_vec_env(
                 env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
@@ -175,7 +179,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             env.close()
 
         # estimate state value V^{\pi_{old}}_{r_\theta}(s,a)
-        v = torch.zeros(1)
+        v = torch.zeros(1).to(self.device)
         for ep_idx in range(n_episodes):
             env = make_vec_env(
                 env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
@@ -240,45 +244,61 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         
         return new_policy
     
-    def update_reward(self, cur_round: int) -> reward_nets.RewardNet:
+    def update_reward(self) -> reward_nets.RewardNet:
         """Update reward network by gradient decent for `n_steps` steps. The loss is adapted from the constrained optimisation problem of the
         trust region reward learning by Lagrangian multipliers (moving the constraints into the objective function).
         
         Args:
-            n_steps: The number of steps for gradient decent
             cur_round: The number of current round of reward-policy iteration
         Returns:
             The updated reward network
         """
         self._rwd_opt.zero_grad()
         # Do a complete pass on the demonstrations, i.e., sampling sufficient mini batches for performing GD.
-        if cur_round == 0:
-            # The initial reward should be all ONE.
-            # Reward tensor shape = 1 x minibatch size 
-            init_rewards = torch.zeros((1, self.demo_minibatch_size))
-            #TODO: estimate the advantage function
-            reward_diff = self.reward_net() - init_rewards
-        else:
-            #TODO: add the two penality terms to the loss
-            #TODO: loss backward
-            pass
-        
+        batch_iter = self._make_reward_train_batches()
+        for batch in batch_iter:
+            # estimate the advantage function
+            obs = batch["obs"]
+            acts = batch["acts"]
+            next_obs = batch["next_obs"]
+            dones = batch["dones"]
+            loss = torch.zeros(1).to(self.device)
+            accum_diff_square = torch.zeros(1).to(self.device)
+            for idx in range(self.demo_minibatch_size):
+                loss += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx], 
+                                                              starting_action=acts[idx], 
+                                                              n_timesteps=self.demo_minibatch_size, 
+                                                              n_episodes=128)
+                # Add the two penality terms to the loss
+                # TODO: two penalties should be calculated over all state-action pairs
+                if self._old_reward_net is None:
+                    # The initial reward should be all ONE.
+                    reward_diff = self.reward_net(obs[idx], acts[idx], next_obs[idx], dones[next_obs]) - torch.ones(1)
+                else:
+                    reward_diff = self.reward_net(obs[idx], acts[idx], next_obs[idx], dones[next_obs]) - \
+                        self._old_reward_net(obs[idx], acts[idx], next_obs[idx], dones[next_obs])
+                loss += self.avg_diff_coef  * reward_diff
+                diff_square += torch.square(reward_diff)
+            # loss backward
+            loss -= self.l2_norm_coef * torch.sqrt(accum_diff_square) - self.l2_norm_upper_bound
+            loss = -(loss/self.demo_minibatch_size) * (self.demo_minibatch_size / self.demo_batch_size)
+            loss.backward()
 
 
     
-    def train(self, n_rounds: int, reward_training_epochs: int, callback: Optional[Callable[[int], None]] = None):
+    def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
             n_rounds: An upper bound on the iterations of training.
-            reward_training_steps: An upper bound on the gradient steps for training the reward network.
             callback: A function called at the end of every round which takes in a
                 single argument, the round number. Round numbers are in
                 `range(total_timesteps // self.gen_train_timesteps)`.
         """
+        # TODO: Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the reward network.
-            self._reward_net = self.update_reward(cur_round=r)
+            self._reward_net = self.update_reward()
             self._old_reward_net = copy.deepcopy(self._reward_net)
             # Update the policy as the one optimal for the updated reward.
             self._old_policy = self.train_new_policy_for_new_reward()
