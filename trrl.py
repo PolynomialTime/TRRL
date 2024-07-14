@@ -302,6 +302,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self._old_reward_net = copy.deepcopy(self._reward_net)
             # Update the policy as the one optimal for the updated reward.
             self._old_policy = self.train_new_policy_for_new_reward()
+            if callback:
+                callback(r)
 
     @property
     def policy(self) -> policies.BasePolicy:

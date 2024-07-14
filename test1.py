@@ -98,8 +98,9 @@ transitions = sample_expert_transitions()
 
 #transitions.obs.shape[0]
 #x, y = transitions.obs.shape
-print(len(transitions))
-print(transitions)
+#print(len(transitions))
+#print(transitions)
+
 '''
 bc_trainer = bc.BC(
     observation_space=env.observation_space,
