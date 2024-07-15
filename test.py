@@ -20,7 +20,7 @@ from imitation.rewards.reward_nets import BasicRewardNet
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 from reward_function import RwdFromRwdNet
 
-
+'''
 rng = np.random.default_rng(0)
 env = make_vec_env(
     "CartPole-v1",
@@ -48,3 +48,11 @@ starting_action = np.array([0], dtype=np.integer)
 
 loss = torch.zeros((1,1))
 print(loss)
+'''
+
+t = torch.as_tensor([0,1])
+print(t.shape)
+x = t.view(1, t.shape[-1])
+print(x)
+x = torch.flatten(x, 1)
+print(x)
