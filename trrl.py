@@ -283,8 +283,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss = torch.zeros(1).to(self.device)
             accum_diff_square = torch.zeros(1).to(self.device)
             for idx in range(self.demo_minibatch_size):
-                loss += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx].detach().numpy(), 
-                                                              starting_action=acts[idx].detach().numpy(), 
+                loss += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx], 
+                                                              starting_action=acts[idx], 
                                                               n_timesteps=self.demo_minibatch_size, 
                                                               n_episodes=128)
                 # Add the two penality terms to the loss
@@ -391,7 +391,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         assert isinstance(self.demonstrations.obs, np.ndarray)
 
         # Check dimensions.
-        assert self.demo_batch_size == len(self.demonstrations.acts )
+        assert self.demo_batch_size == len(self.demonstrations.acts)
         assert self.demo_batch_size == len(self.demonstrations.next_obs)
 
         for start in range(0, self.demo_batch_size, self.demo_minibatch_size):
@@ -404,17 +404,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             next_obs = self.demonstrations.next_obs[start:end]
             dones = self.demonstrations.dones[start:end]
 
-            obs_th, acts_th, next_obs_th, dones_th = self.reward_net.preprocess(
-                obs,
-                acts,
-                next_obs,
-                dones,
-            )
             batch_dict = {
-                "state": obs_th,
-                "action": acts_th,
-                "next_state": next_obs_th,
-                "done": dones_th,
+                "state": obs,
+                "action": acts,
+                "next_state": next_obs,
+                "done": dones,
             }
 
             yield batch_dict

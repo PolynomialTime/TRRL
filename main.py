@@ -61,7 +61,7 @@ def sample_expert_transitions():
 
 transitions = sample_expert_transitions()
 
-# print(transitions.obs.shape)
+print(transitions.obs.shape)
 
 rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space, env.unwrapped.envs[0].unwrapped.action_space)
 
@@ -69,8 +69,8 @@ trrl_trainer = TRRL(
     venv=env,
     demonstrations=transitions,
     old_policy=sac_policies.SACPolicy,
-    demo_batch_size=74,
-    demo_minibatch_size=37,
+    demo_batch_size=transitions.obs.shape[0],
+    demo_minibatch_size=transitions.obs.shape[0],
     reward_net=rwd_net,
     discount=0.95,
     avg_diff_coef=0.1,
@@ -80,7 +80,3 @@ trrl_trainer = TRRL(
 )
 
 trrl_trainer.train(n_rounds=2)
-
-
-
-
