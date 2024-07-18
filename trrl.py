@@ -14,7 +14,8 @@ import dataclasses
 
 import gymnasium as gym
 
-from stable_baselines3 import SAC
+from stable_baselines3 import PPO, SAC
+from stable_baselines3.ppo import MlpPolicy
 from stable_baselines3.common import policies, vec_env, distributions
 from stable_baselines3.sac import policies as sac_policies
 
@@ -26,10 +27,9 @@ from imitation.data import rollout, types
 from imitation.util import logger, util
 from imitation.util.util import make_vec_env
 
-from imitation.rewards import reward_nets
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 
-from reward_function import RwdFromRwdNet
+from reward_function import RwdFromRwdNet, RewardNet
 
 from typing import Callable, Iterable, Iterator, Mapping, Optional, Type, overload
 
@@ -47,17 +47,17 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         *,
         venv: vec_env.VecEnv,
         demonstrations: base.AnyTransitions,
-        old_policy: policies.BasePolicy,
         demo_batch_size: int,
         demo_minibatch_size: int,
         custom_logger: Optional[logger.HierarchicalLogger] = None,
-        reward_net: reward_nets.RewardNet,
+        reward_net: RewardNet,
         discount: np.float32,
         avg_diff_coef: np.float32,
         l2_norm_coef: np.float32,
         l2_norm_upper_bound: np.float32,
         ent_coef: np.float32 = 0.01,
         rwd_opt_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
+        policy_step_rounds: int,
         device: torch.device = torch.device("cpu"),
         **kwargs,
     ):
@@ -80,20 +80,21 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :param custom_logger: Where to log to; if None (default), creates a new logger.
         :param reward_net: reward network.
         :param discount: discount factor. A value between 0 and 1.
-        :param avg_diff_coef: coefficient for r_old - r_new.
+        :param avg_diff_coef: coefficient for `r_old - r_new`.
         :param l2_norm_coef: coefficient for the max difference between r_new and r_old.
             In the practical algorithm, the max difference is replaced
             by an average distance for the differentiability.
         :param l2_norm_upper_bound: Upper bound for the l2 norm of the difference between current and old reward net
         :param ent_coef: coefficient for policy entropy.
         :param rwd_opt_cls: The optimizer for reward training
+        :param policy_step_rounds: The number of rounds for updating the policy.
         :param kwargs: Keyword arguments to pass to the RL algorithm constructor.
 
         :raises: ValueError: if `dqn_kwargs` includes a key
                 `replay_buffer_class` or `replay_buffer_kwargs`.
         """
         self._rwd_opt_cls = rwd_opt_cls
-        self._old_policy = old_policy
+        self._old_policy = None
         self._old_reward_net = None
         self.ent_coef = ent_coef
         self.avg_diff_coef = avg_diff_coef
@@ -112,12 +113,13 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._rwd_opt_cls=rwd_opt_cls
         self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters())
         self.discount=discount
+        self.policy_step_rounds = policy_step_rounds
         self.custom_logger=custom_logger
 
     def set_demonstrations(self, demonstrations) -> None:
         self.demonstrations = demonstrations
 
-    def reset(self, reward_net: reward_nets.RewardNet = None):
+    def reset(self, reward_net: RewardNet = None):
         """Reset the reward network and the iteration counter.
         
         Args:
@@ -165,35 +167,31 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                             )
 
             if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
-                starting_action = starting_action.astype(int)
+                starting_a = starting_action.astype(int)
+            else:
+                starting_a = starting_action
             if isinstance(self.venv.unwrapped.envs[0].unwrapped.observation_space, gym.spaces.Discrete):
-                starting_state = starting_state.astype(int)
+                starting_s = starting_state.astype(int)
+            else:
+                starting_s = starting_state
 
             tran = rollouts.generate_transitions(
                 self._old_policy,
                 env,
                 rng=rng,
                 n_timesteps=n_timesteps,
-                starting_state=starting_state,
-                starting_action=starting_action,
-                #truncate=True,
+                starting_state=starting_s,
+                starting_action=starting_a,
+                truncate=True,
             )
+            
+            state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
+            rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
+            #log_policy = self._get_log_policy_act_prob(obs_th=states, acts_th=acts)
+            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps))
+            #print("log_policy", log_policy)
+            q += torch.dot(rwds, discounts)
 
-            for time_idx in range(n_timesteps):
-                state = torch.as_tensor(tran.obs[time_idx]).to(self.device)
-                state = state.view(1, state.shape[-1])
-                action = torch.as_tensor([tran.acts[time_idx]]).to(self.device)
-                action = action.view(1, action.shape[-1])
-                next_state = torch.as_tensor(tran.next_obs[time_idx]).to(self.device)
-                next_state = next_state.view(1, next_state.shape[-1])
-                done = torch.as_tensor([tran.dones[time_idx]]).to(self.device)
-                done = done.view(1, done.shape[-1])
-                print("state", state)
-                print("action", action)
-                print("next_state", next_state)
-                print("done", done)
-                q += pow(self.discount, time_idx) * (self._reward_net(state, action, next_state, done) + self.ent_coef * 
-                                                     self._get_log_policy_act_prob(obs_th=state, acts_th=action))
             env.close()
 
         # estimate state value V^{\pi_{old}}_{r_\theta}(s,a)
@@ -205,24 +203,29 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 rng=rng,
                 # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
                             )
+            
+            if isinstance(self.venv.unwrapped.envs[0].unwrapped.observation_space, gym.spaces.Discrete):
+                starting_s = starting_state.astype(int)
+            else:
+                starting_s = starting_state
 
-            obs, acts, infos, next_obs, dones = rollout.generate_trajectories(
+
+            tran = rollouts.generate_transitions(
                 self._old_policy,
                 env,
                 n_timesteps=n_timesteps,
                 rng=rng,
-                starting_state=starting_state,
+                starting_state=starting_s,
                 starting_action=None,
                 truncate=True,
             )
 
-            for time_idx in range(n_timesteps):
-                state = torch.as_tensor([obs[time_idx]]).to(self.device)
-                action = torch.as_tensor([acts[time_idx]]).to(self.device)
-                next_state = torch.as_tensor([next_obs[time_idx]]).to(self.device)
-                done = torch.as_tensor([dones[time_idx]]).to(self.device)
-                v += torch.pow(torch.as_tensor(self.discount), time_idx) * (self._reward_net(state, action, next_state, done) + self.ent_coef *
-                                                                             self._get_log_policy_act_prob(obs_th=state, acts_th=action))
+            state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
+
+            rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
+            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps))
+            v += torch.dot(rwds, discounts)
+
             env.close()
 
         return (q-v)/n_episodes
@@ -249,20 +252,25 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         _ = venv_with_cur_rwd_net.reset()
 
-        new_policy = SAC(
-            policy=sac_policies.SACPolicy,
+        new_policy = PPO(
+            policy=MlpPolicy,
             env=venv_with_cur_rwd_net,
             batch_size=64,
             ent_coef=self.ent_coef,
             learning_rate=0.0003,
+            n_epochs=10,
+            n_steps=64,
+            gamma=self.discount
         )
+
+        new_policy.learn(self.policy_step_rounds)
 
         venv_with_cur_rwd_net.close()
         venv.close()
         
         return new_policy
     
-    def update_reward(self) -> reward_nets.RewardNet:
+    def update_reward(self) -> RewardNet:
         """Update reward network by gradient decent for `n_steps` steps. The loss is adapted from the constrained optimisation problem of the
         trust region reward learning by Lagrangian multipliers (moving the constraints into the objective function).
         
@@ -271,6 +279,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         Returns:
             The updated reward network
         """
+        # TODO: consider optimise a reward network from scratch
+        # initialise the optimiser for the reward net
         self._rwd_opt.zero_grad()
         # Do a complete pass on the demonstrations, i.e., sampling sufficient mini batches for performing GD.
         batch_iter = self._make_reward_train_batches()
@@ -280,28 +290,36 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             acts = batch["action"]
             next_obs = batch["next_state"]
             dones = batch["done"]
+            
             loss = torch.zeros(1).to(self.device)
-            accum_diff_square = torch.zeros(1).to(self.device)
-            for idx in range(self.demo_minibatch_size):
-                loss += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx], 
-                                                              starting_action=acts[idx], 
-                                                              n_timesteps=self.demo_minibatch_size, 
-                                                              n_episodes=128)
-                # Add the two penality terms to the loss
-                # TODO: two penalties should be calculated over all state-action pairs
-                if self._old_reward_net is None:
-                    # The initial reward should be all ONE.
-                    reward_diff = self.reward_net(obs[idx], acts[idx], next_obs[idx], dones[next_obs]) - torch.ones(1)
-                else:
-                    reward_diff = self.reward_net(obs[idx], acts[idx], next_obs[idx], dones[next_obs]) - \
-                        self._old_reward_net(obs[idx], acts[idx], next_obs[idx], dones[next_obs])
-                loss += self.avg_diff_coef  * reward_diff
-                diff_square += torch.square(reward_diff)
-            # loss backward
-            loss -= self.l2_norm_coef * torch.sqrt(accum_diff_square) - self.l2_norm_upper_bound
-            loss = -(loss/self.demo_minibatch_size) * (self.demo_minibatch_size / self.demo_batch_size)
-            loss.backward()
 
+            # estimated average estimated advantage function values
+            cumul_advantages = torch.zeros(1).to(self.device)
+            for idx in range(self.demo_minibatch_size):
+                cumul_advantages += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx], 
+                                                              starting_action=acts[idx], 
+                                                              n_timesteps=128, 
+                                                              n_episodes=256)
+            avg_advantages = cumul_advantages / self.demo_minibatch_size
+
+            state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
+
+            if self._old_reward_net is None:
+                reward_diff = self.reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1)
+            else:
+                # use `predict_th` for `self._old_reward_net` as its gradient is not needed
+                reward_diff = self.reward_net(state_th, action_th, next_state_th, done_th) - self._old_reward_net.predict_th(state_th, action_th, next_state_th, done_th)
+            # TODO: two penalties should be calculated over all state-action pairs
+            avg_reward_diff = torch.mean(reward_diff)
+            l2_norm_reward_diff = torch.norm(reward_diff, p=2)
+            
+            loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff \
+                + self.l2_norm_upper_bound 
+            
+            loss = - loss * (self.demo_minibatch_size / self.demo_batch_size)
+            loss.backward()
+        
+        return self._reward_net
 
     
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
@@ -315,11 +333,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # TODO: Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
+            # Update the policy as the one optimal for the updated reward.
+            self._old_policy = self.train_new_policy_for_new_reward()
             # Update the reward network.
             self._reward_net = self.update_reward()
             self._old_reward_net = copy.deepcopy(self._reward_net)
-            # Update the policy as the one optimal for the updated reward.
-            self._old_policy = self.train_new_policy_for_new_reward()
             if callback:
                 callback(r)
 
@@ -328,53 +346,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         return self._old_policy
     
     @property
-    def reward_net(self) -> reward_nets.RewardNet:
+    def reward_net(self) -> RewardNet:
         return self._reward_net
-    
-    def _get_log_policy_act_prob(
-        self,
-        obs_th: torch.Tensor,
-        acts_th: torch.Tensor,
-    ) -> Optional[torch.Tensor]:
-        """Evaluates the given actions on the given observations.
-
-        Args:
-            obs_th: A batch of observations.
-            acts_th: A batch of actions.
-
-        Returns:
-            A batch of log policy action probabilities.
-        """
-        if isinstance(self.policy, policies.ActorCriticPolicy):
-            # policies.ActorCriticPolicy has a concrete implementation of
-            # evaluate_actions to generate log_policy_act_prob given obs and actions.
-            _, log_policy_act_prob_th, _ = self.policy.evaluate_actions(
-                obs_th,
-                acts_th,
-            )
-        elif isinstance(self.policy, sac_policies.SACPolicy):
-            gen_algo_actor = self.policy.actor
-            assert gen_algo_actor is not None
-            # generate log_policy_act_prob from SAC actor.
-            mean_actions, log_std, _ = gen_algo_actor.get_action_dist_params(obs_th)
-            assert isinstance(
-                gen_algo_actor.action_dist,
-                distributions.SquashedDiagGaussianDistribution,
-            )  # Note: this is just a hint to mypy
-            distribution = gen_algo_actor.action_dist.proba_distribution(
-                mean_actions,
-                log_std,
-            )
-            # SAC applies a squashing function to bound the actions to a finite range
-            # `acts_th` need to be scaled accordingly before computing log prob.
-            # Scale actions only if the policy squashes outputs.
-            assert self.policy.squash_output
-            scaled_acts = self.policy.scale_action(acts_th.numpy(force=True))
-            scaled_acts_th = torch.as_tensor(scaled_acts, device=mean_actions.device)
-            log_policy_act_prob_th = distribution.log_prob(scaled_acts_th)
-        else:
-            return None
-        return log_policy_act_prob_th
     
     def _make_reward_train_batches(
         self,

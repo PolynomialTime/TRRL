@@ -2,12 +2,11 @@
 
 """
 import numpy as np
-from stable_baselines3 import PPO, SAC
-from stable_baselines3.sac import policies as sac_policies
+from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.ppo import MlpPolicy
 
-from imitation.rewards.reward_nets import BasicRewardNet
+from reward_function import BasicRewardNet
 from imitation.algorithms import bc
 from imitation.policies.serialize import load_policy
 from imitation.util.util import make_vec_env
@@ -61,22 +60,22 @@ def sample_expert_transitions():
 
 transitions = sample_expert_transitions()
 
-print(transitions.obs.shape)
+#print(transitions.obs.shape)
 
 rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space, env.unwrapped.envs[0].unwrapped.action_space)
 
 trrl_trainer = TRRL(
     venv=env,
     demonstrations=transitions,
-    old_policy=sac_policies.SACPolicy,
     demo_batch_size=transitions.obs.shape[0],
     demo_minibatch_size=transitions.obs.shape[0],
     reward_net=rwd_net,
-    discount=0.95,
+    discount=0.99,
     avg_diff_coef=0.1,
     l2_norm_coef=0.1,
     l2_norm_upper_bound=0.05,
-    ent_coef=0.1
+    ent_coef=0.1,
+    policy_step_rounds=100
 )
 
 trrl_trainer.train(n_rounds=2)
