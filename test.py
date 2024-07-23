@@ -50,9 +50,5 @@ loss = torch.zeros((1,1))
 print(loss)
 '''
 
-t = torch.as_tensor([0,1])
-print(t.shape)
-x = t.view(1, t.shape[-1])
-print(x)
-x = torch.flatten(x, 1)
-print(x)
+t = torch.ones(1)
+print(float(t))

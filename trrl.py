@@ -2,37 +2,26 @@
 
 Trains a reward function whose induced policy is monotonically improved towards the expert policy.
 """
-from typing import Optional
-
+import os
+from typing import Callable, Iterator, Mapping, Optional, Type
 import copy
 import tqdm
-
 import torch
 import numpy as np
-
-import dataclasses
-
 import gymnasium as gym
 
-from stable_baselines3 import PPO, SAC
+from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
-from stable_baselines3.common import policies, vec_env, distributions
-from stable_baselines3.sac import policies as sac_policies
+from stable_baselines3.common import policies, vec_env
 
 from imitation.algorithms import base as algo_base
 from imitation.algorithms import base
-
-from imitation.data import rollout, types
-
-from imitation.util import logger, util
+from imitation.data import types
+from imitation.util import logger, networks, util
 from imitation.util.util import make_vec_env
-
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 
 from reward_function import RwdFromRwdNet, RewardNet
-
-from typing import Callable, Iterable, Iterator, Mapping, Optional, Type, overload
-
 import rollouts
 
 
@@ -46,6 +35,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self,
         *,
         venv: vec_env.VecEnv,
+        expert_policy: policies = None,
         demonstrations: base.AnyTransitions,
         demo_batch_size: int,
         demo_minibatch_size: int,
@@ -59,12 +49,16 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         rwd_opt_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         policy_step_rounds: int,
         device: torch.device = torch.device("cpu"),
+        log_dir: types.AnyPath = "output/",
+        allow_variable_horizon: bool = False,
         **kwargs,
     ):
         """
         Builds TRRL.
 
         :param venv: The vectorized environment to train on.
+        :param expert_policy: The expert polocy in the form of stablebaseline3 policies. This is used to
+            calculate the difference between the expert policy and the learned policy.
         :param demonstrations: Demonstrations to use for training. The input demo should be flatened.
         :param old_policy: The policy model to use for the old policy (Stable Baseline 3).
         :param demo_batch_size: The number of samples in each batch of expert data. In principle, 
@@ -88,6 +82,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :param ent_coef: coefficient for policy entropy.
         :param rwd_opt_cls: The optimizer for reward training
         :param policy_step_rounds: The number of rounds for updating the policy.
+        :param log_dir: Directory to store TensorBoard logs, plots, etc. in.
         :param kwargs: Keyword arguments to pass to the RL algorithm constructor.
 
         :raises: ValueError: if `dqn_kwargs` includes a key
@@ -103,18 +98,56 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         #self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
         self.venv = venv
         self.device = device
+        self._expert_policy = expert_policy
         self.demonstrations=demonstrations
         self.demo_batch_size=demo_batch_size
         self.demo_minibatch_size = demo_minibatch_size
         if self.demo_batch_size % self.demo_minibatch_size != 0:
             raise ValueError("Batch size must be a multiple of minibatch size.")
+        super().__init__(
+            demonstrations=demonstrations,
+            custom_logger=custom_logger,
+            allow_variable_horizon=allow_variable_horizon,
+        )
         self.venv=venv
         self._reward_net=reward_net.to(device)
         self._rwd_opt_cls=rwd_opt_cls
         self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters())
         self.discount=discount
         self.policy_step_rounds = policy_step_rounds
-        self.custom_logger=custom_logger
+        self._log_dir = util.parse_path(log_dir)
+        #self.logger = logger.configure(self._log_dir)
+        self._global_step = 0
+
+    def expert_kl(self) -> float:
+        """KL divergence between the expert and the current policy.
+        A Stablebaseline3-format expert policy is required.
+
+        :return: The average KL divergence between the the expert policy and the current policy
+        """
+        assert self._old_policy is not None
+        assert isinstance(self._old_policy.policy, policies.ActorCriticPolicy)
+        assert isinstance(self._expert_policy.policy, policies.ActorCriticPolicy)
+        obs = copy.deepcopy(self.demonstrations.obs)
+        acts = copy.deepcopy(self.demonstrations.acts)
+        
+        obs_th = torch.as_tensor(obs, device=self.device)
+        acts_th = torch.as_tensor(acts, device=self.device)
+        
+        input_values, input_log_prob, input_entropy = self._old_policy.policy.evaluate_actions(obs_th, acts_th)
+        target_values, target_log_prob, target_entropy = self._expert_policy.policy.evaluate_actions(obs_th, acts_th)
+
+        kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
+
+        return(float(kl_div))
+
+    def log_saving(self) -> None:
+        """Save logs containing the following info:
+                1. KL divergence between the expert and the current policy;
+                2. Evaluations of the current policy.
+        """
+        # TODO 
+        pass
 
     def set_demonstrations(self, demonstrations) -> None:
         self.demonstrations = demonstrations
@@ -148,12 +181,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             the estimated value of advantage function at `starting_state` and `starting_action`
         """
 
-        # Generate trajectories using the old policy, with the staring state and action being those occurring in expert
-        # demonstrations.
-
-        #demo_obs = self.demonstrations.obs
-        #demo_acts = self.demonstrations.acts
-
         rng = np.random.default_rng(0)
 
         # estimate state-action value Q^{\pi_{old}}_{r_\theta}(s,a)
@@ -163,7 +190,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
                 n_envs=self.venv.num_envs,
                 rng=rng,
-                # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
                             )
 
             if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
@@ -175,6 +201,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             else:
                 starting_s = starting_state
 
+            # Generate trajectories using the old policy, with the staring state and action being those occurring in expert demonstrations.
+             
             tran = rollouts.generate_transitions(
                 self._old_policy,
                 env,
@@ -187,9 +215,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-            #log_policy = self._get_log_policy_act_prob(obs_th=states, acts_th=acts)
             discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps))
-            #print("log_policy", log_policy)
             q += torch.dot(rwds, discounts)
 
             env.close()
@@ -201,7 +227,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
                 n_envs=self.venv.num_envs,
                 rng=rng,
-                # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
                             )
             
             if isinstance(self.venv.unwrapped.envs[0].unwrapped.observation_space, gym.spaces.Discrete):
@@ -231,10 +256,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         return (q-v)/n_episodes
 
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
-        """Update the policy to maximise the rewards under the new reward function. The SAC algorithm will be used.
+        """Update the policy to maximise the rewards under the new reward function. The PPO algorithm will be used.
 
         Returns:
-            A gym SAC policy optimised for the current reward network
+            A gym PPO policy optimised for the current reward network
         """
         rng = np.random.default_rng(0)
         venv = make_vec_env(
@@ -295,40 +320,42 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             # estimated average estimated advantage function values
             cumul_advantages = torch.zeros(1).to(self.device)
+
             for idx in range(self.demo_minibatch_size):
                 cumul_advantages += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx], 
                                                               starting_action=acts[idx], 
-                                                              n_timesteps=128, 
-                                                              n_episodes=256)
+                                                              n_timesteps=64, 
+                                                              n_episodes=128)
+                
             avg_advantages = cumul_advantages / self.demo_minibatch_size
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
 
             if self._old_reward_net is None:
-                reward_diff = self.reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1)
+                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1)
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
-                reward_diff = self.reward_net(state_th, action_th, next_state_th, done_th) - self._old_reward_net.predict_th(state_th, action_th, next_state_th, done_th)
+                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - self._old_reward_net.predict_th(obs, acts, next_obs, dones)
+            
             # TODO: two penalties should be calculated over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
+            
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
             
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff \
                 + self.l2_norm_upper_bound 
-            
             loss = - loss * (self.demo_minibatch_size / self.demo_batch_size)
             loss.backward()
-        
-        return self._reward_net
 
+        self._global_step += 1
+        return self._reward_net
     
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
             n_rounds: An upper bound on the iterations of training.
             callback: A function called at the end of every round which takes in a
-                single argument, the round number. Round numbers are in
-                `range(total_timesteps // self.gen_train_timesteps)`.
+                single argument, the round number.
         """
         # TODO: Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
@@ -338,6 +365,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # Update the reward network.
             self._reward_net = self.update_reward()
             self._old_reward_net = copy.deepcopy(self._reward_net)
+            self.logger.record("round " + str(r), self.expert_kl())
+            self.logger.dump(step=10)
             if callback:
                 callback(r)
 
@@ -370,8 +399,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         for start in range(0, self.demo_batch_size, self.demo_minibatch_size):
             end = start + self.demo_minibatch_size
             # take minibatch slice (this creates views so no memory issues)
-            #expert_batch = {k: v[start:end] for k, v in expert_samples.items()}
-
             obs = self.demonstrations.obs[start:end]
             acts = self.demonstrations.acts[start:end]
             next_obs = self.demonstrations.next_obs[start:end]
