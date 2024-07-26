@@ -111,8 +111,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         )
         self.venv=venv
         self._reward_net=reward_net.to(device)
-        self._rwd_opt_cls=rwd_opt_cls
-        self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters())
+        self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters(), lr=0.0005)
         self.discount=discount
         self.policy_step_rounds = policy_step_rounds
         self._log_dir = util.parse_path(log_dir)
@@ -282,7 +281,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             env=venv_with_cur_rwd_net,
             batch_size=64,
             ent_coef=self.ent_coef,
-            learning_rate=0.0003,
+            learning_rate=0.0005,
             n_epochs=10,
             n_steps=64,
             gamma=self.discount
@@ -391,10 +390,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         """
 
         assert isinstance(self.demonstrations.obs, np.ndarray)
-
-        # Check dimensions.
-        assert self.demo_batch_size == len(self.demonstrations.acts)
-        assert self.demo_batch_size == len(self.demonstrations.next_obs)
 
         for start in range(0, self.demo_batch_size, self.demo_minibatch_size):
             end = start + self.demo_minibatch_size

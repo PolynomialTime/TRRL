@@ -49,6 +49,5 @@ starting_action = np.array([0], dtype=np.integer)
 loss = torch.zeros((1,1))
 print(loss)
 '''
-
-t = torch.ones(1)
-print(float(t))
+for i in range(0, 10, 3):
+    print(i)
