@@ -85,7 +85,7 @@ trrl_trainer = TRRL(
     ent_coef=ENT_COEF,
     device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
     n_policy_updates_per_round=100_000,
-    n_reward_updates_per_round=100,
+    n_reward_updates_per_round=10,
 )
 print("Starting reward learning.")
 

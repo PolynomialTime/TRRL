@@ -230,7 +230,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps))
+            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps)).to(self.device)
             q += torch.dot(rwds, discounts)
 
             env.close()
@@ -263,7 +263,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
 
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps))
+            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps)).to(self.device)
             v += torch.dot(rwds, discounts)
 
             env.close()
