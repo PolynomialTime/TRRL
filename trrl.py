@@ -12,7 +12,7 @@ import gymnasium as gym
 
 from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
-from stable_baselines3.common import policies, vec_env
+from stable_baselines3.common import policies, vec_env, evaluation
 
 from imitation.algorithms import base as algo_base
 from imitation.algorithms import base
@@ -47,10 +47,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         l2_norm_upper_bound: np.float32,
         ent_coef: np.float32 = 0.01,
         rwd_opt_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
-        policy_step_rounds: int,
         device: torch.device = torch.device("cpu"),
         log_dir: types.AnyPath = "output/",
         allow_variable_horizon: bool = False,
+        n_policy_updates_per_round=100_000,
+        n_reward_updates_per_round=10,
         **kwargs,
     ):
         """
@@ -81,7 +82,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :param l2_norm_upper_bound: Upper bound for the l2 norm of the difference between current and old reward net
         :param ent_coef: coefficient for policy entropy.
         :param rwd_opt_cls: The optimizer for reward training
-        :param policy_step_rounds: The number of rounds for updating the policy.
+        :param n_policy_updates_per_round: The number of rounds for updating the policy per global round.
+        :param n_reward_updates_per_round: The number of rounds for updating the reward per global round.
         :param log_dir: Directory to store TensorBoard logs, plots, etc. in.
         :param kwargs: Keyword arguments to pass to the RL algorithm constructor.
 
@@ -113,11 +115,13 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._reward_net=reward_net.to(device)
         self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters(), lr=0.0005)
         self.discount=discount
-        self.policy_step_rounds = policy_step_rounds
+        self.n_policy_updates_per_round = n_policy_updates_per_round
+        self.n_reward_updates_per_round = n_reward_updates_per_round
         self._log_dir = util.parse_path(log_dir)
         #self.logger = logger.configure(self._log_dir)
         self._global_step = 0
 
+    @property
     def expert_kl(self) -> float:
         """KL divergence between the expert and the current policy.
         A Stablebaseline3-format expert policy is required.
@@ -139,6 +143,18 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
 
         return(float(kl_div))
+    
+    @property
+    def evaluate_policy(self) -> float:
+        """Evalute the true expected return of the learned policy under the original environment.
+
+        :return: The true expected return of the learning policy.
+        """
+        assert self._old_policy is not None
+        assert isinstance(self._old_policy.policy, policies.ActorCriticPolicy)
+
+        mean_reward, std_reward = evaluation.evaluate_policy(model=self._old_policy, env=self.venv)
+        return mean_reward
 
     def log_saving(self) -> None:
         """Save logs containing the following info:
@@ -287,7 +303,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             gamma=self.discount
         )
 
-        new_policy.learn(self.policy_step_rounds)
+        new_policy.learn(self.n_policy_updates_per_round)
 
         venv_with_cur_rwd_net.close()
         venv.close()
@@ -295,8 +311,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         return new_policy
     
     def update_reward(self) -> RewardNet:
-        """Update reward network by gradient decent for `n_steps` steps. The loss is adapted from the constrained optimisation problem of the
-        trust region reward learning by Lagrangian multipliers (moving the constraints into the objective function).
+        """Perform a single reward update by conducting a complete pass over the demonstrations, 
+        optionally using provided samples. The loss is adapted from the constrained optimisation 
+        problem of the trust region reward learning by Lagrangian multipliers (moving the constraints 
+        into the objective function).
         
         Args:
             cur_round: The number of current round of reward-policy iteration
@@ -347,7 +365,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss.backward()
 
         self._global_step += 1
-        return self._reward_net
     
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
@@ -362,9 +379,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # Update the policy as the one optimal for the updated reward.
             self._old_policy = self.train_new_policy_for_new_reward()
             # Update the reward network.
-            self._reward_net = self.update_reward()
+            for _ in range(self.n_reward_updates_per_round):
+                self.update_reward()
             self._old_reward_net = copy.deepcopy(self._reward_net)
-            self.logger.record("round " + str(r), self.expert_kl())
+            self.logger.record("round " + str(r), 'Distance: '+str(self.expert_kl)+'. Rewards: '+str(self.evaluate_policy))
             self.logger.dump(step=10)
             if callback:
                 callback(r)

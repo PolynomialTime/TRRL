@@ -10,7 +10,6 @@ from stable_baselines3.ppo import policies, MlpPolicy
 from imitation.algorithms import bc
 from imitation.policies.serialize import load_policy
 from imitation.util.util import make_vec_env
-from imitation.data import types
 
 import gymnasium as gym
 
@@ -22,8 +21,8 @@ from typing import (
     List,
 )
 
-DEMO_BATCH_SIZE = 2048
-DEMO_MINIBATCH_SIZE = 256
+DEMO_BATCH_SIZE = 4096
+DEMO_MINIBATCH_SIZE = 64
 ENT_COEF = 0.01
 DISCOUNT = 0.99
 
@@ -85,7 +84,8 @@ trrl_trainer = TRRL(
     l2_norm_upper_bound=0.1,
     ent_coef=ENT_COEF,
     device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
-    policy_step_rounds=100_000
+    n_policy_updates_per_round=100_000,
+    n_reward_updates_per_round=100,
 )
 print("Starting reward learning.")
 
