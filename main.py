@@ -17,15 +17,12 @@ from reward_function import BasicRewardNet
 import rollouts
 from trrl import TRRL
 
-from typing import (
-    List,
-)
+from typing import (List,)
 
 DEMO_BATCH_SIZE = 4096
 DEMO_MINIBATCH_SIZE = 64
 ENT_COEF = 0.01
 DISCOUNT = 0.99
-
 rng = np.random.default_rng(0)
 env = make_vec_env(
     "seals:seals/CartPole-v0",
