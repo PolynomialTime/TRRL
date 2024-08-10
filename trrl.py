@@ -3,7 +3,7 @@
 Trains a reward function whose induced policy is monotonically improved towards the expert policy.
 """
 import os
-from typing import Callable, Iterator, Mapping, Optional, Type
+from typing import Callable, Iterator, Mapping, Optional, Type, cast
 import copy
 import tqdm
 import torch
@@ -12,7 +12,7 @@ import gymnasium as gym
 
 from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
-from stable_baselines3.common import policies, vec_env, evaluation
+from stable_baselines3.common import policies, vec_env, evaluation, preprocessing
 
 from imitation.algorithms import base as algo_base
 from imitation.algorithms import base
@@ -38,7 +38,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         expert_policy: policies = None,
         demonstrations: base.AnyTransitions,
         demo_batch_size: int,
-        demo_minibatch_size: int,
         custom_logger: Optional[logger.HierarchicalLogger] = None,
         reward_net: RewardNet,
         discount: np.float32,
@@ -52,6 +51,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         allow_variable_horizon: bool = False,
         n_policy_updates_per_round=100_000,
         n_reward_updates_per_round=10,
+        n_episodes_adv_fn_est=32,
+        n_timesteps_adv_fn_est=64,
         **kwargs,
     ):
         """
@@ -62,16 +63,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             calculate the difference between the expert policy and the learned policy.
         :param demonstrations: Demonstrations to use for training. The input demo should be flatened.
         :param old_policy: The policy model to use for the old policy (Stable Baseline 3).
-        :param demo_batch_size: The number of samples in each batch of expert data. In principle, 
-            the length of a trajectory should be a factor of mini batch size, i.e., a bacth of
-            complete trajectories are used in gradient descent.
-        :param demo_minibatch_size: size of minibatch to calculate gradients over.
-            The gradients are accumulated until the entire batch is
-            processed before making an optimization step. This is
-            useful in GPU training to reduce memory usage, since
-            fewer examples are loaded into memory at once,
-            facilitating training with larger batch sizes, but is
-            generally slower. Must be a factor of `demo_batch_size`.
+        :param demo_batch_size: The number of samples in each batch of expert data.
         :param custom_logger: Where to log to; if None (default), creates a new logger.
         :param reward_net: reward network.
         :param discount: discount factor. A value between 0 and 1.
@@ -84,6 +76,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :param rwd_opt_cls: The optimizer for reward training
         :param n_policy_updates_per_round: The number of rounds for updating the policy per global round.
         :param n_reward_updates_per_round: The number of rounds for updating the reward per global round.
+        :param n_episodes_adv_fn_est: Number of episodes for advantage function estimation.
+        :param n_timesteps_adv_fn_est: number of timesteps for advantage function estimation.
         :param log_dir: Directory to store TensorBoard logs, plots, etc. in.
         :param kwargs: Keyword arguments to pass to the RL algorithm constructor.
 
@@ -103,9 +97,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._expert_policy = expert_policy
         self.demonstrations=demonstrations
         self.demo_batch_size=demo_batch_size
-        self.demo_minibatch_size = demo_minibatch_size
-        if self.demo_batch_size % self.demo_minibatch_size != 0:
-            raise ValueError("Batch size must be a multiple of minibatch size.")
         super().__init__(
             demonstrations=demonstrations,
             custom_logger=custom_logger,
@@ -117,6 +108,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.discount=discount
         self.n_policy_updates_per_round = n_policy_updates_per_round
         self.n_reward_updates_per_round = n_reward_updates_per_round
+        self.n_episodes_adv_fn_est = n_episodes_adv_fn_est
+        self.n_timesteps_adv_fn_est = n_timesteps_adv_fn_est
         self._log_dir = util.parse_path(log_dir)
         #self.logger = logger.configure(self._log_dir)
         self._global_step = 0
@@ -198,26 +191,26 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         rng = np.random.default_rng(0)
 
-        # estimate state-action value Q^{\pi_{old}}_{r_\theta}(s,a)
-        q = torch.zeros(1).to(self.device)
-        for ep_idx in range(n_episodes):
-            env = make_vec_env(
+        env = make_vec_env(
                 env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
                 n_envs=self.venv.num_envs,
                 rng=rng,
                             )
 
-            if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
-                starting_a = starting_action.astype(int)
-            else:
-                starting_a = starting_action
-            if isinstance(self.venv.unwrapped.envs[0].unwrapped.observation_space, gym.spaces.Discrete):
-                starting_s = starting_state.astype(int)
-            else:
-                starting_s = starting_state
+        if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
+            starting_a = starting_action.astype(int)
+        else:
+            starting_a = starting_action
+        if isinstance(self.venv.unwrapped.envs[0].unwrapped.observation_space, gym.spaces.Discrete):
+            starting_s = starting_state.astype(int)
+        else:
+            starting_s = starting_state
+            
+        # estimate state-action value Q^{\pi_{old}}_{r_\theta}(s,a)
+        q = torch.zeros(1).to(self.device)
 
+        for ep_idx in range(n_episodes):
             # Generate trajectories using the old policy, with the staring state and action being those occurring in expert demonstrations.
-             
             tran = rollouts.generate_transitions(
                 self._old_policy,
                 env,
@@ -230,26 +223,30 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps)).to(self.device)
+            discounts = torch.pow(torch.ones(n_timesteps, device=self.device)*self.discount, torch.arange(0, n_timesteps, device=self.device))
             q += torch.dot(rwds, discounts)
-
-            env.close()
 
         # estimate state value V^{\pi_{old}}_{r_\theta}(s,a)
         v = torch.zeros(1).to(self.device)
+        '''
+        if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
+            # if the action space is discrete, then V(s,a) can be calculated as the expectation of Q(s,a) over all a's 
+            state_th = util.safe_to_tensor(starting_state).to(self.device)
+            state_th = cast(
+                torch.Tensor,
+                preprocessing.preprocess_obs(
+                    state_th,
+                    self.venv.unwrapped.envs[0].unwrapped.observation_space,
+                    True,
+                ),
+            )
+            with torch.no_grad():
+                self._old_policy.policy.forward(obs=torch.as_tensor(state_th, device=self.device))
+                PPO.policy.for
+            pass
+            # if the action space is fully or partially continuous, then V(s,a) is approximated by Monte Carlo simulation.
+        '''
         for ep_idx in range(n_episodes):
-            env = make_vec_env(
-                env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
-                n_envs=self.venv.num_envs,
-                rng=rng,
-                            )
-            
-            if isinstance(self.venv.unwrapped.envs[0].unwrapped.observation_space, gym.spaces.Discrete):
-                starting_s = starting_state.astype(int)
-            else:
-                starting_s = starting_state
-
-
             tran = rollouts.generate_transitions(
                 self._old_policy,
                 env,
@@ -263,11 +260,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
 
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-            discounts = torch.pow(torch.ones(n_timesteps)*self.discount, torch.arange(0, n_timesteps)).to(self.device)
+            discounts = torch.pow(torch.ones(n_timesteps, device=self.device)*self.discount, torch.arange(0, n_timesteps, device=self.device))
             v += torch.dot(rwds, discounts)
 
-            env.close()
-
+        env.close()
         return (q-v)/n_episodes
 
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
@@ -310,7 +306,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         
         return new_policy
     
-    def update_reward(self) -> RewardNet:
+    def update_reward(self):
         """Perform a single reward update by conducting a complete pass over the demonstrations, 
         optionally using provided samples. The loss is adapted from the constrained optimisation 
         problem of the trust region reward learning by Lagrangian multipliers (moving the constraints 
@@ -324,7 +320,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # TODO: consider optimise a reward network from scratch
         # initialise the optimiser for the reward net
         self._rwd_opt.zero_grad()
-        # Do a complete pass on the demonstrations, i.e., sampling sufficient mini batches for performing GD.
+        # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing GD.
         batch_iter = self._make_reward_train_batches()
         for batch in batch_iter:
             # estimate the advantage function
@@ -338,21 +334,22 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # estimated average estimated advantage function values
             cumul_advantages = torch.zeros(1).to(self.device)
 
-            for idx in range(self.demo_minibatch_size):
+            for idx in range(obs.shape[0]):
                 cumul_advantages += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx], 
                                                               starting_action=acts[idx], 
-                                                              n_timesteps=64, 
-                                                              n_episodes=128)
+                                                              n_timesteps=self.n_timesteps_adv_fn_est, 
+                                                              n_episodes=self.n_episodes_adv_fn_est)
                 
-            avg_advantages = cumul_advantages / self.demo_minibatch_size
+            avg_advantages = cumul_advantages / obs.shape[0]
+            #print("Advantage estimation finished.")
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
 
             if self._old_reward_net is None:
-                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1)
+                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(self.device)
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
-                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - self._old_reward_net.predict_th(obs, acts, next_obs, dones)
+                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - self._old_reward_net.predict_th(obs, acts, next_obs, dones).to(self.device)
             
             # TODO: two penalties should be calculated over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
@@ -361,7 +358,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff \
                 + self.l2_norm_upper_bound 
-            loss = - loss * (self.demo_minibatch_size / self.demo_batch_size)
+            loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
             loss.backward()
 
         self._global_step += 1
@@ -382,7 +379,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             for _ in range(self.n_reward_updates_per_round):
                 self.update_reward()
             self._old_reward_net = copy.deepcopy(self._reward_net)
-            self.logger.record("round " + str(r), 'Distance: '+str(self.expert_kl)+'. Rewards: '+str(self.evaluate_policy))
+            self.logger.record("round " + str(r), 'Distance: '+str(self.expert_kl)+'. Reward: '+str(self.evaluate_policy))
             self.logger.dump(step=10)
             if callback:
                 callback(r)
@@ -398,20 +395,17 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     def _make_reward_train_batches(
         self,
     ) -> Iterator[Mapping[str, torch.Tensor]]:
-        """Build and return training minibatches for the reward update.
+        """Build and return training batches for the reward update.
 
         Args:
             expert_samples: Same as expert demonstrations.
 
         Returns:
-            The training minibatch: state, action, next state, dones.
+            The training batch: state, action, next state, dones.
         """
 
-        assert isinstance(self.demonstrations.obs, np.ndarray)
-
-        for start in range(0, self.demo_batch_size, self.demo_minibatch_size):
-            end = start + self.demo_minibatch_size
-            # take minibatch slice (this creates views so no memory issues)
+        for start in range(0, self.demonstrations.obs.shape[0], self.demo_batch_size):
+            end = start + self.demo_batch_size
             obs = self.demonstrations.obs[start:end]
             acts = self.demonstrations.acts[start:end]
             next_obs = self.demonstrations.next_obs[start:end]

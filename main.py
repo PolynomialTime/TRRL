@@ -1,6 +1,7 @@
 """This is the runner of using TRRL to infer the reward functions and the optimal policy
 
 """
+import arguments
 import torch
 import numpy as np
 from stable_baselines3 import PPO
@@ -21,15 +22,12 @@ from typing import (
     List,
 )
 
-DEMO_BATCH_SIZE = 4096
-DEMO_MINIBATCH_SIZE = 64
-ENT_COEF = 0.01
-DISCOUNT = 0.99
+arglist = arguments.parse_args()
 
 rng = np.random.default_rng(0)
 env = make_vec_env(
-    "seals:seals/CartPole-v0",
-    n_envs=8,
+    arglist.env_name,
+    n_envs=arglist.n_env,
     rng=rng,
     #post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
 )
@@ -42,9 +40,9 @@ def train_expert():
         env=env,
         seed=0,
         batch_size=64,
-        ent_coef=ENT_COEF,
-        learning_rate=0.0005,
-        gamma=DISCOUNT,
+        ent_coef=arglist.ent_coef,
+        learning_rate=arglist.lr,
+        gamma=arglist.discount,
         n_epochs=10,
         n_steps=64,
     )
@@ -57,7 +55,7 @@ def sample_expert_transitions(expert: policies):
     trajs = rollouts.generate_trajectories(
         expert,
         env,
-        rollouts.make_sample_until(min_timesteps=DEMO_MINIBATCH_SIZE, min_episodes=60),
+        rollouts.make_sample_until(min_timesteps=None, min_episodes=60),
         rng=rng,
         starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
         starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
@@ -67,26 +65,44 @@ def sample_expert_transitions(expert: policies):
     #return rollouts
 
 expert = train_expert()  # uncomment to train your own expert
+
+mean_reward, std_reward = evaluate_policy(model=expert, env=env)
+print("Average reward of the expert is evaluated at: " + str(mean_reward) + '.')
+
+
 transitions = sample_expert_transitions(expert)
+print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
 
 rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space, env.unwrapped.envs[0].unwrapped.action_space)
+
+if arglist.device == 'cpu':
+    DEVICE = torch.device('cpu')
+elif arglist.device == 'gpu' and torch.cuda.is_available():
+    DEVICE = torch.device('cuda:0')
+elif arglist.device == 'gpu' and not torch.cuda.is_available():
+    DEVICE = torch.device('cpu')
+    print("Cuda is not available, run on CPU instead.")
+else:
+    DEVICE = torch.device('cpu')
+    print("The intended device is not supported, run on CPU instead.")
 
 trrl_trainer = TRRL(
     venv=env,
     expert_policy=expert,
     demonstrations=transitions,
-    demo_batch_size=DEMO_BATCH_SIZE,
-    demo_minibatch_size=DEMO_MINIBATCH_SIZE,
+    demo_batch_size=arglist.demo_batch_size,
     reward_net=rwd_net,
-    discount=DISCOUNT,
-    avg_diff_coef=0.1,
-    l2_norm_coef=0.1,
-    l2_norm_upper_bound=0.1,
-    ent_coef=ENT_COEF,
-    device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
-    n_policy_updates_per_round=100_000,
-    n_reward_updates_per_round=10,
+    discount=arglist.discount,
+    avg_diff_coef=arglist.avg_reward_diff_coef,
+    l2_norm_coef=arglist.avg_reward_diff_coef,
+    l2_norm_upper_bound=arglist.l2_norm_upper_bound,
+    ent_coef=arglist.ent_coef,
+    device=DEVICE,
+    n_policy_updates_per_round=arglist.n_policy_updates_per_round,
+    n_reward_updates_per_round=arglist.n_reward_updates_per_round,
+    n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
+    n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est
 )
 print("Starting reward learning.")
 
-trrl_trainer.train(n_rounds=2000)
+trrl_trainer.train(n_rounds=arglist.n_runs)
