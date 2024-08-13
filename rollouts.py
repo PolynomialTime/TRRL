@@ -26,7 +26,6 @@ from stable_baselines3.common.vec_env import VecEnv
 
 from imitation.data import types
 
-
 def unwrap_traj(traj: types.TrajectoryWithRew) -> types.TrajectoryWithRew:
     """Uses `RolloutInfoWrapper`-captured `obs` and `rews` to replace fields.
 
@@ -293,7 +292,6 @@ def policy_to_callable(
     """Converts any policy-like object into a function from observations to actions."""
     get_actions: PolicyCallable
     if policy is None:
-
         def get_actions(
             observations: Union[np.ndarray, Dict[str, np.ndarray]],
             states: Optional[Tuple[np.ndarray, ...]],
@@ -307,7 +305,6 @@ def policy_to_callable(
         # are themselves Callable (which we check next). But in their case,
         # we want to use the .predict() method, rather than __call__()
         # (which would call .forward()). So this elif clause must come first!
-
         def get_actions(
             observations: Union[np.ndarray, Dict[str, np.ndarray]],
             states: Optional[Tuple[np.ndarray, ...]],
@@ -431,7 +428,6 @@ def generate_trajectories(
         (np.ndarray, dict),
     ), "Tuple observations are not supported."
     wrapped_obs = types.maybe_wrap_in_dictobs(init_obs)
-
     # we use dictobs to iterate over the envs in a vecenv
     for env_idx, ob in enumerate(wrapped_obs):
         # Seed with first obs only. Inside loop, we'll only add second obs from
@@ -460,9 +456,10 @@ def generate_trajectories(
             init_acts = np.repeat(starting_action, repeats=[venv.num_envs], axis=0)
         else:
             init_acts, state = get_actions(init_obs, state, dones)
-        #print("init acts")
-        #print(init_acts)
+
         obs, rews, dones, infos = venv.step(init_acts)
+        init_obs = obs
+
         assert isinstance(
             obs,
             (np.ndarray, dict),
@@ -497,7 +494,6 @@ def generate_trajectories(
     # when callees end up truncating the number of trajectories or transitions.
     # It is also cheap, since we're just shuffling pointers.
     rng.shuffle(trajectories)  # type: ignore[arg-type]
-
     # Sanity checks.
     for trajectory in trajectories:
         n_steps = len(trajectory.acts)

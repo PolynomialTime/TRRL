@@ -32,6 +32,7 @@ env = make_vec_env(
     #post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
 )
 
+print(arglist.env_name)
 def train_expert():
     # note: use `download_expert` instead to download a pretrained, competent expert
     print("Training an expert.")
@@ -43,7 +44,7 @@ def train_expert():
         ent_coef=arglist.ent_coef,
         learning_rate=arglist.lr,
         gamma=arglist.discount,
-        n_epochs=10,
+        n_epochs=20,
         n_steps=64,
     )
     expert.learn(100_000)  # Note: change this to 100_000 to train a decent expert.
@@ -51,7 +52,6 @@ def train_expert():
 
 def sample_expert_transitions(expert: policies):
     print("Sampling expert transitions.")
-    
     trajs = rollouts.generate_trajectories(
         expert,
         env,
@@ -60,15 +60,14 @@ def sample_expert_transitions(expert: policies):
         starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
         starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
     )
-    
+
     return rollouts.flatten_trajectories(trajs)
     #return rollouts
 
 expert = train_expert()  # uncomment to train your own expert
 
 mean_reward, std_reward = evaluate_policy(model=expert, env=env)
-print("Average reward of the expert is evaluated at: " + str(mean_reward) + '.')
-
+print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
 
 transitions = sample_expert_transitions(expert)
 print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
