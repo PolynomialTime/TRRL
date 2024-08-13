@@ -2,6 +2,7 @@ import time
 import argparse
 
 time_now = time.strftime('%Y_%m_%d_%H:%M')
+# python3 main.py --device gpu --n_episodes_adv_fn_est 32 --n_timesteps_adv_fn_est 32 --env_name FrozenLake-v1 --n_env 8
 
 def parse_args():
     parser = argparse.ArgumentParser("Trust Region Inverse Reinforcement Learning")
@@ -11,8 +12,9 @@ def parse_args():
     parser.add_argument("--device", type=str, default='cpu', help="torch device")
 
     # environment
+    #parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
     parser.add_argument("--env_name", type=str, default="FrozenLake-v1", help="the environment")
-    parser.add_argument("--n_env", type=int, default=8, help="number of parallel envs in venvs")
+    parser.add_argument("--n_env", type=int, default=1, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
     parser.add_argument("--demo_batch_size", type=int, default=256, help="number of demos to generate")
@@ -20,7 +22,7 @@ def parse_args():
     # core training parameters
     parser.add_argument("--max_epoch", type=int, default=100, help="maximum epoch length")
     parser.add_argument("--max_grad_norm", type=float, default=0.5, help="max gradient norm for clip")
-    parser.add_argument("--lr", type=float, default=0.0005, help="learning rate for adam optimizer")
+    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for adam optimizer")
     parser.add_argument("--avg_reward_diff_coef", type=float, default=0.1, help="Langrange multiplier for the average difference between the old and new reward function")
     parser.add_argument("--l2_norm_coef", type=float, default=0.1, help="Langrange multiplier for the l2 norm of the difference between the old and new reward function")
     parser.add_argument("--l2_norm_upper_bound", type=float, default=0.1, help="upper bound for the l2 norm of the difference between the old and new reward function")
