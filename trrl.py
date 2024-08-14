@@ -3,12 +3,15 @@
 Trains a reward function whose induced policy is monotonically improved towards the expert policy.
 """
 import os
+import time
 from typing import Callable, Iterator, Mapping, Optional, Type, cast
 import copy
 import tqdm
 import torch
 import numpy as np
 import gymnasium as gym
+from functools import wraps
+from stable_baselines3.common.evaluation import evaluate_policy
 
 from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
@@ -24,6 +27,16 @@ from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 from reward_function import RwdFromRwdNet, RewardNet
 import rollouts
 
+def timeit_decorator(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        temp_str = str(func.__code__)
+        #print(f"Function {temp_str[-30:]} {func.__name__}  executed in {end_time - start_time} seconds")
+        return result
+    return wrapper
 
 class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     """Trust Region Reward Learning (TRRL).
@@ -115,6 +128,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._global_step = 0
 
     @property
+    @timeit_decorator
     def expert_kl(self) -> float:
         """KL divergence between the expert and the current policy.
         A Stablebaseline3-format expert policy is required.
@@ -172,6 +186,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
         pass
 
+    @timeit_decorator
     def est_adv_fn_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
                                       n_timesteps: int, n_episodes: int) -> torch.Tensor:
         """Use Monte-Carlo simulation to estimation the advantage function of the given state and action under the
@@ -266,6 +281,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         env.close()
         return (q-v)/n_episodes
 
+    @timeit_decorator
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
         """Update the policy to maximise the rewards under the new reward function. The PPO algorithm will be used.
 
@@ -305,7 +321,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         venv.close()
         
         return new_policy
-    
+
+    @timeit_decorator
     def update_reward(self):
         """Perform a single reward update by conducting a complete pass over the demonstrations, 
         optionally using provided samples. The loss is adapted from the constrained optimisation 
@@ -319,7 +336,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         """
         # TODO: consider optimise a reward network from scratch
         # initialise the optimiser for the reward net
-        self._rwd_opt.zero_grad()
         # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing GD.
         batch_iter = self._make_reward_train_batches()
         for batch in batch_iter:
@@ -359,10 +375,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff \
                 + self.l2_norm_upper_bound 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
+
+            self._rwd_opt.zero_grad()
             loss.backward()
+            self._rwd_opt.step()
 
         self._global_step += 1
-    
+
+    @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
