@@ -3,6 +3,7 @@
 
 import abc
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Tuple, Type, cast
+from functools import wraps
 
 import gymnasium as gym
 import numpy as np
@@ -10,10 +11,12 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common import preprocessing
 from torch import nn
+import time
 
 from imitation.util import networks, util
 
 from imitation.rewards.reward_function import RewardFn
+
 
 class RewardNet(nn.Module, abc.ABC):
     """Minimal abstract reward network.
@@ -437,11 +440,13 @@ class BasicRewardNet(RewardNet):
         self.use_state = use_state
         if self.use_state:
             combined_size += preprocessing.get_flattened_obs_dim(observation_space)
+            print("combined_size1:",combined_size)
 
         self.use_action = use_action
         if self.use_action:
             #Disctrete spaces are calculated using its one-hot encoding. Example: dim = 2 for Space.Discrete(2)
             combined_size += preprocessing.get_flattened_obs_dim(action_space)
+            print("combined_size2:",combined_size)
 
         self.use_next_state = use_next_state
         if self.use_next_state:   
@@ -474,7 +479,10 @@ class BasicRewardNet(RewardNet):
             inputs.append(th.reshape(done, [-1, 1]))
 
         inputs_concat = th.cat(inputs, dim=1)
+
         outputs = self.mlp(inputs_concat)
+        #print("inputs:", inputs_concat,"outputs:", outputs)
+
         assert outputs.shape == state.shape[:1]
 
         return outputs

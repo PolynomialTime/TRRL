@@ -28,9 +28,9 @@ def parse_args():
     parser.add_argument("--l2_norm_upper_bound", type=float, default=0.1, help="upper bound for the l2 norm of the difference between the old and new reward function")
 
     # experiment control parameters
-    parser.add_argument("--n_runs", type=int, default=2000, help="number of global rounds")
-    parser.add_argument("--n_policy_updates_per_round", type=int, default=100000, help="number of policy udpates per global round")
-    parser.add_argument("--n_reward_updates_per_round", type=int, default=16, help="number of reward udpates per global round")
+    parser.add_argument("--n_runs", type=int, default=10, help="number of global rounds")
+    parser.add_argument("--n_policy_updates_per_round", type=int, default=300, help="number of policy udpates per global round")
+    parser.add_argument("--n_reward_updates_per_round", type=int, default=3, help="number of reward udpates per global round")
     parser.add_argument("--n_episodes_adv_fn_est", type=int, default=64, help="number of episodes for advantage function estimation")
     parser.add_argument("--n_timesteps_adv_fn_est", type=int, default=32, help="number of timesteps for advantage function estimation")
 

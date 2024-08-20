@@ -9,13 +9,11 @@ from stable_baselines3.ppo import MlpPolicy
 
 from imitation.algorithms import bc
 #from imitation.data import rollout
-import rollouts
 from imitation.data.wrappers import RolloutInfoWrapper
 from imitation.policies.serialize import load_policy
 from imitation.util.util import make_vec_env
 
 import gymnasium as gym
-
 import rollouts
 
 rng = np.random.default_rng(0)
@@ -71,7 +69,7 @@ def sample_expert_transitions():
     print("Sampling expert transitions.")
 
     
-    rollouts = rollouts.generate_trajectories(
+    train = rollouts.generate_trajectories(
         expert,
         env,
         rollouts.make_sample_until(min_timesteps=None, min_episodes=2),
@@ -91,7 +89,7 @@ def sample_expert_transitions():
         truncate=True,
     )
     '''
-    return rollouts.flatten_trajectories(rollouts)
+    return rollouts.flatten_trajectories(train)
     #return rollouts
 
 
