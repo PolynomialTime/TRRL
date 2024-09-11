@@ -116,6 +116,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             allow_variable_horizon=allow_variable_horizon,
         )
         self.venv=venv
+        self._new_policy = None  # Initialize _new_policy
         self._reward_net=reward_net.to(device)
         self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters(), lr=0.0005)
         self.discount=discount
@@ -143,7 +144,13 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         
         obs_th = torch.as_tensor(obs, device=self.device)
         acts_th = torch.as_tensor(acts, device=self.device)
-        
+
+        # 确保模型的权重在同一设备上
+        self._old_policy.policy.to(self.device)
+        self._expert_policy.policy.to(self.device)
+        # print(obs_th.shape)
+        # print(acts_th.shape)
+
         input_values, input_log_prob, input_entropy = self._old_policy.policy.evaluate_actions(obs_th, acts_th)
         target_values, target_log_prob, target_entropy = self._expert_policy.policy.evaluate_actions(obs_th, acts_th)
 
@@ -185,11 +192,54 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
         pass
+#############################################################################################
+    def compute_is_weights(self, old_policy, new_policy, observations, actions):
+        """
+        Compute the importance sampling (IS) weights.
+
+        Args:
+            old_policy: The old policy used to generate the original trajectories.
+            new_policy: The new policy that we are trying to evaluate.
+            observations: The observations from the trajectory.
+            actions: The actions taken in the trajectory.
+
+        Returns:
+            weights: The computed IS weights.
+        """
+        observations = torch.as_tensor(observations, device=self.device)
+        actions = torch.as_tensor(actions, device=self.device)
+
+        # 确保模型的权重在同一设备上
+        self._old_policy.policy.to(self.device)
+        self._expert_policy.policy.to(self.device)
+
+############################test
+
+        # 打印形状
+        # print("Observations shape:", observations.shape)
+        # print("Actions shape:", actions.shape)
+
+        # observations = observations.to(self.device)
+        # actions = actions.to(self.device)
+        #old_prob = old_policy.policy.get_distribution(observations).log_prob(actions)
+        #new_prob = new_policy.policy.get_distribution(observations).log_prob(actions)
+
+        old_prob = old_policy.policy.evaluate_actions(observations, actions)[1]
+        new_prob = new_policy.policy.evaluate_actions(observations, actions)[1]
+
+        # print("Old policy output shape:", old_prob.shape)
+        # print("New policy output shape:", new_prob.shape)
+
+        weights = torch.exp(new_prob - old_prob)
+        return weights
+
+########################################################################
+
 
     @timeit_decorator
     def est_adv_fn_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
-                                      n_timesteps: int, n_episodes: int) -> torch.Tensor:
-        """Use Monte-Carlo simulation to estimation the advantage function of the given state and action under the
+                                        n_timesteps: int, n_episodes: int, use_mc=False) -> torch.Tensor:
+        """Use Monte-Carlo or Importance Sampling to estimate the advantage function of the given state and action under the
         old policy and the current reward network
 
         Advantage function: A^{\pi_{old}}_{r_\theta}(s,a) = Q^{\pi_{old}}_{r_\theta}(s,a) - V^{\pi_{old}}_{r_\theta}(s,a)
@@ -199,11 +249,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             starting_action: The action to estimate the advantage function for.
             n_timesteps: The length of a rollout.
             n_episodes: The number of simulated rollouts.
+            use_mc: Boolean flag to determine whether to use Monte Carlo.
 
         Returns:
             the estimated value of advantage function at `starting_state` and `starting_action`
         """
-
         rng = np.random.default_rng(0)
 
         env = make_vec_env(
@@ -220,12 +270,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             starting_s = starting_state.astype(int)
         else:
             starting_s = starting_state
-            
-        # estimate state-action value Q^{\pi_{old}}_{r_\theta}(s,a)
+                
         q = torch.zeros(1).to(self.device)
 
         for ep_idx in range(n_episodes):
-            # Generate trajectories using the old policy, with the staring state and action being those occurring in expert demonstrations.
             tran = rollouts.generate_transitions(
                 self._old_policy,
                 env,
@@ -236,31 +284,33 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 truncate=True,
             )
             
+
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
+
+            
+            # Ensure tensors are on the correct device
+            state_th = state_th.to(self.device)
+            action_th = action_th.to(self.device)
+            next_state_th = next_state_th.to(self.device)
+            done_th = done_th.to(self.device)
+
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
             discounts = torch.pow(torch.ones(n_timesteps, device=self.device)*self.discount, torch.arange(0, n_timesteps, device=self.device))
-            q += torch.dot(rwds, discounts)
+            
+            if use_mc:
+                # Use Monte Carlo estimation
+                q += torch.dot(rwds, discounts)
+            else:
+                # Ensure policies are on the correct device
+                state_th = state_th.to(self.device)
+                action_th = action_th.to(self.device)
 
-        # estimate state value V^{\pi_{old}}_{r_\theta}(s,a)
+                # Use Importance Sampling estimation
+                weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
+                q += torch.dot(weights * rwds, discounts)
+
         v = torch.zeros(1).to(self.device)
-        '''
-        if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
-            # if the action space is discrete, then V(s,a) can be calculated as the expectation of Q(s,a) over all a's 
-            state_th = util.safe_to_tensor(starting_state).to(self.device)
-            state_th = cast(
-                torch.Tensor,
-                preprocessing.preprocess_obs(
-                    state_th,
-                    self.venv.unwrapped.envs[0].unwrapped.observation_space,
-                    True,
-                ),
-            )
-            with torch.no_grad():
-                self._old_policy.policy.forward(obs=torch.as_tensor(state_th, device=self.device))
-                PPO.policy.for
-            pass
-            # if the action space is fully or partially continuous, then V(s,a) is approximated by Monte Carlo simulation.
-        '''
+        
         for ep_idx in range(n_episodes):
             tran = rollouts.generate_transitions(
                 self._old_policy,
@@ -273,13 +323,29 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             )
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
+            
+            # Ensure tensors are on the correct device
+            state_th = state_th.to(self.device)
+            action_th = action_th.to(self.device)
+            next_state_th = next_state_th.to(self.device)
+            done_th = done_th.to(self.device)
 
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
             discounts = torch.pow(torch.ones(n_timesteps, device=self.device)*self.discount, torch.arange(0, n_timesteps, device=self.device))
-            v += torch.dot(rwds, discounts)
+            
+            if use_mc:
+                v += torch.dot(rwds, discounts)
+            else:
+                # Ensure policies are on the correct device
+                state_th = state_th.to(self.device)
+                action_th = action_th.to(self.device)
+
+                weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
+                v += torch.dot(weights * rwds, discounts)
 
         env.close()
         return (q-v)/n_episodes
+
 
     @timeit_decorator
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
@@ -320,16 +386,21 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         venv_with_cur_rwd_net.close()
         venv.close()
         
+        # Store the new policy
+        self._new_policy = new_policy
+
         return new_policy
 
+
     @timeit_decorator
-    def update_reward(self):
+    def update_reward(self,use_mc=False):
         """Perform a single reward update by conducting a complete pass over the demonstrations, 
         optionally using provided samples. The loss is adapted from the constrained optimisation 
         problem of the trust region reward learning by Lagrangian multipliers (moving the constraints 
         into the objective function).
         
         Args:
+            use_mc: Boolean flag to determine whether to use Monte Carlo for advantage function estimation.
             cur_round: The number of current round of reward-policy iteration
         Returns:
             The updated reward network
@@ -354,7 +425,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 cumul_advantages += self.est_adv_fn_old_policy_cur_reward(starting_state=obs[idx], 
                                                               starting_action=acts[idx], 
                                                               n_timesteps=self.n_timesteps_adv_fn_est, 
-                                                              n_episodes=self.n_episodes_adv_fn_est)
+                                                              n_episodes=self.n_episodes_adv_fn_est,
+                                                              use_mc=use_mc)
                 
             avg_advantages = cumul_advantages / obs.shape[0]
             #print("Advantage estimation finished.")
@@ -395,9 +467,15 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
             self._old_policy = self.train_new_policy_for_new_reward()
+            
+            # Determine whether to use Monte Carlo or Importance Sampling
+            use_mc = (r % 200 == 0)
+            
+            
             # Update the reward network.
             for _ in range(self.n_reward_updates_per_round):
-                self.update_reward()
+                self.update_reward(use_mc=use_mc)
+            
             self._old_reward_net = copy.deepcopy(self._reward_net)
             self.logger.record("round " + str(r), 'Distance: '+str(self.expert_kl)+'. Reward: '+str(self.evaluate_policy))
             self.logger.dump(step=10)
