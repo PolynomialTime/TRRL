@@ -23,6 +23,7 @@ from imitation.data import types
 from imitation.util import logger, networks, util
 from imitation.util.util import make_vec_env
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
+import torch.utils.tensorboard as tb
 
 from reward_function import RwdFromRwdNet, RewardNet
 import rollouts
@@ -389,14 +390,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 reward_diff = self._reward_net(state_th, action_th, next_state_th,
                                                done_th) - self._old_reward_net.predict_th(obs, acts, next_obs,dones).to(self.device)
 
-            print("reward_diff:",reward_diff)
+            #print("reward_diff:",reward_diff)
 
             # TODO: two penalties should be calculated over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
 
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff + self.l2_norm_upper_bound
-            print("loss:",loss,"avg_advantages:",avg_advantages,"avg_reward_diff:",avg_reward_diff,"l2_norm_reward_diff:",l2_norm_reward_diff)
+            print(self._global_step,"loss:",loss,"avg_advantages:",avg_advantages,"avg_reward_diff:",avg_reward_diff,"l2_norm_reward_diff:",l2_norm_reward_diff)
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
@@ -404,10 +405,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss.backward()
             self._rwd_opt.step()
 
+            writer.add_scalar("Train/loss", loss.item(),self._global_step)
+            writer.add_scalar("Train/avg_advantages", avg_advantages.item(),self._global_step)
+            writer.add_scalar("Train/avg_reward_diff", avg_reward_diff.item(),self._global_step)
+
             end_batch = time.time()
             print("batch time:",end_batch-start_batch)
 
-        self._global_step += 1
+            self._global_step += 1
 
     @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
@@ -419,6 +424,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         """
         # TODO: Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
+        global writer
+        writer = tb.SummaryWriter('./logs/', flush_secs=1)
+
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
 
@@ -432,12 +440,19 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 print("update_reward_time=",end_update_reward-start_update_reward)
 
             self._old_reward_net = copy.deepcopy(self._reward_net)
+            distance = self.expert_kl
+            reward = self.evaluate_policy
+
+            writer.add_scalar("Valid/distance",distance,r)
+            writer.add_scalar("Valid/reward",reward,r )
 
             self.logger.record("round " + str(r),
-                               'Distance: ' + str(self.expert_kl) + '. Reward: ' + str(self.evaluate_policy))
+                               'Distance: ' + str(distance) + '. Reward: ' + str(self.evaluate_policy))
             self.logger.dump(step=10)
             if callback:
                 callback(r)
+
+        writer.close()
 
     @property
     def policy(self) -> policies.BasePolicy:
