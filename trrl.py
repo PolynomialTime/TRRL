@@ -26,6 +26,8 @@ from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 
 from reward_function import RwdFromRwdNet, RewardNet
 import rollouts
+import random
+
 
 def timeit_decorator(func):
     @wraps(func)
@@ -127,6 +129,16 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._log_dir = util.parse_path(log_dir)
         #self.logger = logger.configure(self._log_dir)
         self._global_step = 0
+        self.MAX_BUFFER_SIZE = 1000  # 定义缓冲区最大值
+        self.trajectory_buffer = []  # 初始化缓冲区
+
+    def store_trajectory(self, trajectory):
+        if len(self.trajectory_buffer) >= self.MAX_BUFFER_SIZE:
+            self.trajectory_buffer.pop(0)  # 移除最早的轨迹
+        self.trajectory_buffer.append(trajectory)
+
+    def sample_old_trajectory(self):
+        return random.choice(self.trajectory_buffer) 
 
     @property
     @timeit_decorator
@@ -270,24 +282,28 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             starting_s = starting_state.astype(int)
         else:
             starting_s = starting_state
-                
+
         q = torch.zeros(1).to(self.device)
 
         for ep_idx in range(n_episodes):
-            tran = rollouts.generate_transitions(
-                self._old_policy,
-                env,
-                rng=rng,
-                n_timesteps=n_timesteps,
-                starting_state=starting_s,
-                starting_action=starting_a,
-                truncate=True,
-            )
-            
+            if use_mc:
+                # Monte Carlo: Sample a new trajectory
+                tran = rollouts.generate_transitions(
+                    self._old_policy,
+                    env,
+                    rng=rng,
+                    n_timesteps=n_timesteps,
+                    starting_state=starting_s,
+                    starting_action=starting_a,
+                    truncate=True,
+                )
+                self.store_trajectory(tran)  # Store the new trajectory in buffer
+            else:
+                # Importance Sampling: Sample an old trajectory from the buffer
+                tran = self.sample_old_trajectory()
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
 
-            
             # Ensure tensors are on the correct device
             state_th = state_th.to(self.device)
             action_th = action_th.to(self.device)
@@ -296,21 +312,18 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
             discounts = torch.pow(torch.ones(n_timesteps, device=self.device)*self.discount, torch.arange(0, n_timesteps, device=self.device))
-            
+
             if use_mc:
                 # Use Monte Carlo estimation
                 q += torch.dot(rwds, discounts)
             else:
-                # Ensure policies are on the correct device
-                state_th = state_th.to(self.device)
-                action_th = action_th.to(self.device)
-
                 # Use Importance Sampling estimation
                 weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
                 q += torch.dot(weights * rwds, discounts)
 
+        # The v calculation remains unchanged
         v = torch.zeros(1).to(self.device)
-        
+
         for ep_idx in range(n_episodes):
             tran = rollouts.generate_transitions(
                 self._old_policy,
@@ -323,7 +336,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             )
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
-            
+
             # Ensure tensors are on the correct device
             state_th = state_th.to(self.device)
             action_th = action_th.to(self.device)
@@ -332,19 +345,16 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
             discounts = torch.pow(torch.ones(n_timesteps, device=self.device)*self.discount, torch.arange(0, n_timesteps, device=self.device))
-            
+
             if use_mc:
                 v += torch.dot(rwds, discounts)
             else:
-                # Ensure policies are on the correct device
-                state_th = state_th.to(self.device)
-                action_th = action_th.to(self.device)
-
                 weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
                 v += torch.dot(weights * rwds, discounts)
 
         env.close()
         return (q-v)/n_episodes
+
 
 
     @timeit_decorator
