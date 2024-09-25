@@ -41,13 +41,14 @@ def train_expert():
         env=env,
         seed=0,
         batch_size=64,
-        ent_coef=arglist.ent_coef,
-        learning_rate=arglist.lr,
-        gamma=arglist.discount,
+        ent_coef=0.01,
+        learning_rate=0.0001,
+        gamma=0.99,
         n_epochs=20,
         n_steps=64,
     )
     expert.learn(100_000)  # Note: change this to 100_000 to train a decent expert.
+    expert.save("expert_policy")
     return expert
 
 def sample_expert_transitions(expert: policies):
@@ -55,7 +56,7 @@ def sample_expert_transitions(expert: policies):
     trajs = rollouts.generate_trajectories(
         expert,
         env,
-        rollouts.make_sample_until(min_timesteps=None, min_episodes=10),
+        rollouts.make_sample_until(min_timesteps=None, min_episodes=512),
         rng=rng,
         starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
         starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
@@ -64,13 +65,22 @@ def sample_expert_transitions(expert: policies):
     return rollouts.flatten_trajectories(trajs)
     #return rollouts
 
-expert = train_expert()  # uncomment to train your own expert
+#expert = train_expert()  # uncomment to train your own expert
+expert = PPO.load("Lake_expert_policy")
+#expert = PPO.load("Pole_expert_policy")
 
 mean_reward, std_reward = evaluate_policy(model=expert, env=env)
 print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
 
 transitions = sample_expert_transitions(expert)
 print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
+#print("transitions:",transitions)
+
+obs = transitions.obs
+actions = transitions.acts
+infos = transitions.infos
+next_obs = transitions.next_obs
+dones = transitions.dones
 
 rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space, env.unwrapped.envs[0].unwrapped.action_space)
 
@@ -85,6 +95,27 @@ else:
     DEVICE = torch.device('cpu')
     print("The intended device is not supported, run on CPU instead.")
 
+# phi_test
+# trrl_trainer = TRRL(
+#     venv=env,
+#     expert_policy=expert,
+#     demonstrations=transitions,
+#     demo_batch_size=arglist.demo_batch_size,
+#     reward_net=rwd_net,
+#     discount=arglist.discount,
+#     avg_diff_coef=arglist.avg_reward_diff_coef,
+#     l2_norm_coef=arglist.avg_reward_diff_coef,
+#     l2_norm_upper_bound=arglist.l2_norm_upper_bound,
+#     ent_coef=arglist.ent_coef,
+#     device=DEVICE,
+#     n_policy_updates_per_round=arglist.n_policy_updates_per_round,
+#     n_reward_updates_per_round=arglist.n_reward_updates_per_round,
+#     n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
+#     n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est
+# )
+# print("Starting reward learning.")
+
+# menglin
 trrl_trainer = TRRL(
     venv=env,
     expert_policy=expert,
@@ -97,10 +128,10 @@ trrl_trainer = TRRL(
     l2_norm_upper_bound=arglist.l2_norm_upper_bound,
     ent_coef=arglist.ent_coef,
     device=DEVICE,
-    n_policy_updates_per_round=arglist.n_policy_updates_per_round,
-    n_reward_updates_per_round=arglist.n_reward_updates_per_round,
-    n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
-    n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est
+    n_policy_updates_per_round=10,#arglist.n_policy_updates_per_round,
+    n_reward_updates_per_round=3,#arglist.n_reward_updates_per_round,
+    n_episodes_adv_fn_est=3,#arglist.n_episodes_adv_fn_est,
+    n_timesteps_adv_fn_est=10#arglist.n_timesteps_adv_fn_est
 )
 print("Starting reward learning.")
 

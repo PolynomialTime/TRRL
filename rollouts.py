@@ -445,6 +445,8 @@ def generate_trajectories(
     #
     # To start with, all environments are active.
     active = np.ones(venv.num_envs, dtype=bool)
+
+
     state = None
     dones = np.zeros(venv.num_envs, dtype=bool)
     while np.any(active):
@@ -678,10 +680,12 @@ def generate_transitions(
         **kwargs,
     )
     transitions = flatten_trajectories_with_rew(traj)
+
     if truncate and n_timesteps is not None:
         as_dict = types.dataclass_quick_asdict(transitions)
         truncated = {k: arr[:n_timesteps] for k, arr in as_dict.items()}
         transitions = types.TransitionsWithRew(**truncated)
+
     return transitions
 
 
