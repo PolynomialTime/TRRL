@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument("--n_env", type=int, default=1, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
-    parser.add_argument("--demo_batch_size", type=int, default=256, help="number of demos to generate")
+    parser.add_argument("--demo_batch_size", type=int, default=512, help="number of demos to generate")
 
     # core training parameters
     parser.add_argument("--max_epoch", type=int, default=100, help="maximum epoch length")

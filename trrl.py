@@ -189,7 +189,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
     @timeit_decorator
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
-        # TODO
         pass
 
     @timeit_decorator
@@ -205,7 +204,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             n_episodes: The number of simulated rollouts.
 
         Returns:
-            the estimated value of advantage function at `starting_state` and `starting_action`
+the estimated value of advantage function at `starting_state` and `starting_ac  tion`
         """
 
         rng = np.random.default_rng(0)
@@ -426,6 +425,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # Iteratively train a reward function and the induced policy.
         global writer
         writer = tb.SummaryWriter('./logs/', flush_secs=1)
+
+        print("n_policy_updates_per_round:",self.n_policy_updates_per_round)
+        print("n_reward_updates_per_round:",self.n_reward_updates_per_round)
 
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.

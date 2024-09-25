@@ -56,7 +56,7 @@ def sample_expert_transitions(expert: policies):
     trajs = rollouts.generate_trajectories(
         expert,
         env,
-        rollouts.make_sample_until(min_timesteps=None, min_episodes=6400),
+        rollouts.make_sample_until(min_timesteps=None, min_episodes=512),
         rng=rng,
         starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
         starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
