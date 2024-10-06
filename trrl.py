@@ -131,14 +131,24 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self._global_step = 0
         self.MAX_BUFFER_SIZE = 1000  # 定义缓冲区最大值
         self.trajectory_buffer = []  # 初始化缓冲区
+        self.current_iteration = 0  # 当前策略迭代次数
+        self.recent_policy_window = 5  # 只从最近5个策略生成的轨迹中采样
 
     def store_trajectory(self, trajectory):
+        """存储轨迹，并将它与当前策略的迭代次数相关联"""
         if len(self.trajectory_buffer) >= self.MAX_BUFFER_SIZE:
             self.trajectory_buffer.pop(0)  # 移除最早的轨迹
-        self.trajectory_buffer.append(trajectory)
+        self.trajectory_buffer.append((trajectory, self.current_iteration))  # 存储轨迹和对应的策略迭代次数
 
     def sample_old_trajectory(self):
-        return random.choice(self.trajectory_buffer) 
+        """只从最近策略生成的轨迹中进行采样"""
+        recent_trajectories = [
+            traj for traj, iteration in self.trajectory_buffer
+            if iteration >= self.current_iteration - self.recent_policy_window
+        ]
+        if len(recent_trajectories) == 0:
+            raise ValueError("没有足够的最近轨迹可供采样")
+        return random.choice(recent_trajectories) 
 
     @property
     @timeit_decorator
@@ -301,7 +311,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             else:
                 # Importance Sampling: Sample an old trajectory from the buffer
                 tran = self.sample_old_trajectory()
-
+                # After applying IS, treat the new weighted trajectory as a new one and store it
+                self.store_trajectory(tran)  # 将经过 IS 处理后的轨迹重新加入池子
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts, tran.next_obs, tran.dones)
 
             # Ensure tensors are on the correct device
@@ -398,6 +409,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         
         # Store the new policy
         self._new_policy = new_policy
+
+         # 在策略训练完成后，更新策略迭代次数
+        self.current_iteration += 1
 
         return new_policy
 
