@@ -28,6 +28,8 @@ from reward_function import RwdFromRwdNet, RewardNet
 import rollouts
 import random
 
+import torch.utils.tensorboard as tb
+
 
 def timeit_decorator(func):
     @wraps(func)
@@ -476,6 +478,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss.backward()
             self._rwd_opt.step()
 
+             # 记录训练指标到TensorBoard
+            writer.add_scalar("Train/loss", loss.item(), self._global_step)
+            writer.add_scalar("Train/avg_advantages", avg_advantages.item(), self._global_step)
+            writer.add_scalar("Train/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+
         self._global_step += 1
 
     @timeit_decorator
@@ -488,6 +495,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         """
         # TODO: Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
+        global writer
+        writer = tb.SummaryWriter('./logs/', flush_secs=1)
+
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
             self._old_policy = self.train_new_policy_for_new_reward()
@@ -501,10 +511,18 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 self.update_reward(use_mc=use_mc)
             
             self._old_reward_net = copy.deepcopy(self._reward_net)
+
+            # 记录指标到TensorBoard
+            writer.add_scalar("Valid/distance", self.expert_kl, r)
+            writer.add_scalar("Valid/reward", self.evaluate_policy, r)
+
+
             self.logger.record("round " + str(r), 'Distance: '+str(self.expert_kl)+'. Reward: '+str(self.evaluate_policy))
             self.logger.dump(step=10)
             if callback:
                 callback(r)
+
+        writer.close()  # 关闭TensorBoard
 
     @property
     def policy(self) -> policies.BasePolicy:
