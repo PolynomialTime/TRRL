@@ -20,8 +20,7 @@ from stable_baselines3.common import policies, vec_env, evaluation, preprocessin
 from imitation.algorithms import base as algo_base
 from imitation.algorithms import base
 from imitation.data import types
-from imitation.util import logger, networks, util
-from imitation.util.util import make_vec_env
+。from imitation.util.util import make_vec_env
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 import torch.utils.tensorboard as tb
 
@@ -392,6 +391,7 @@ the estimated value of advantage function at `starting_state` and `starting_ac  
             #print("reward_diff:",reward_diff)
 
             # TODO: two penalties should be calculated over all state-action pairs
+            # 在所有的S-A上计算； S-A去重
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
 
