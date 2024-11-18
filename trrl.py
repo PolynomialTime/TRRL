@@ -282,7 +282,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         """
         rng = np.random.default_rng(0)
 
-        #TODO 这里用的是不带新Reward的env?
+        # TODO 这里用的是不带新Reward的env?
         env = make_vec_env(
             env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
             n_envs=self.venv.num_envs,
@@ -321,7 +321,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
 
-            state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,tran.next_obs, tran.dones)
+            state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
+                                                                                      tran.next_obs, tran.dones)
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
             discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
                                   torch.arange(0, n_timesteps, device=self.device))
@@ -354,7 +355,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             pass
             # if the action space is fully or partially continuous, then V(s,a) is approximated by Monte Carlo simulation.
         '''
-        j=0
+        j = 0
         for ep_idx in range(n_episodes):
             tran = rollouts.generate_transitions(
                 self._old_policy,
@@ -478,15 +479,17 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
 
             if self._old_reward_net is None:
-                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(self.device)
+                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(
+                    self.device)
                 print("self._old_reward_net is None")
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
-                #TODO: 第一轮迭代，diff=0，因为old和new RewardNet存的相同
+                # TODO: 第一轮迭代，diff=0，因为old和new RewardNet存的相同
                 reward_diff = self._reward_net(state_th, action_th, next_state_th,
-                                               done_th) - self._old_reward_net.predict_th(obs, acts, next_obs,dones).to(self.device)
+                                               done_th) - self._old_reward_net.predict_th(obs, acts, next_obs,
+                                                                                          dones).to(self.device)
 
-            #print("reward_diff:",reward_diff)
+            # print("reward_diff:",reward_diff)
 
             # TODO: two penalties should be calculated over all state-action pairs
             # 在所有的S-A上计算； S-A去重
@@ -494,7 +497,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
 
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff + self.l2_norm_upper_bound
-            print(self._global_step,"loss:",loss,"avg_advantages:",avg_advantages,"avg_reward_diff:",avg_reward_diff,"l2_norm_reward_diff:",l2_norm_reward_diff)
+            print(self._global_step, "loss:", loss, "avg_advantages:", avg_advantages, "avg_reward_diff:",
+                  avg_reward_diff, "l2_norm_reward_diff:", l2_norm_reward_diff)
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
@@ -502,12 +506,12 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss.backward()
             self._rwd_opt.step()
 
-            writer.add_scalar("Train/loss", loss.item(),self._global_step)
-            writer.add_scalar("Train/avg_advantages", avg_advantages.item(),self._global_step)
-            writer.add_scalar("Train/avg_reward_diff", avg_reward_diff.item(),self._global_step)
+            writer.add_scalar("Train/loss", loss.item(), self._global_step)
+            writer.add_scalar("Train/avg_advantages", avg_advantages.item(), self._global_step)
+            writer.add_scalar("Train/avg_reward_diff", avg_reward_diff.item(), self._global_step)
 
             end_batch = time.time()
-            print("batch time:",end_batch-start_batch)
+            print("batch time:", end_batch - start_batch)
 
             self._global_step += 1
 
@@ -524,8 +528,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         global writer
         writer = tb.SummaryWriter('./logs/', flush_secs=1)
 
-        print("n_policy_updates_per_round:",self.n_policy_updates_per_round)
-        print("n_reward_updates_per_round:",self.n_reward_updates_per_round)
+        print("n_policy_updates_per_round:", self.n_policy_updates_per_round)
+        print("n_reward_updates_per_round:", self.n_reward_updates_per_round)
 
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
@@ -543,8 +547,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             distance = self.expert_kl
             reward = self.evaluate_policy
 
-            writer.add_scalar("Valid/distance",distance,r)
-            writer.add_scalar("Valid/reward",reward,r )
+            writer.add_scalar("Valid/distance", distance, r)
+            writer.add_scalar("Valid/reward", reward, r)
 
             self.logger.record("round " + str(r),
                                'Distance: ' + str(distance) + '. Reward: ' + str(self.evaluate_policy))

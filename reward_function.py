@@ -1,6 +1,5 @@
 """Constructs deep network reward models and Utilities for processing reward networks."""
 
-
 import abc
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Tuple, Type, cast
 from functools import wraps
@@ -26,10 +25,10 @@ class RewardNet(nn.Module, abc.ABC):
     """
 
     def __init__(
-        self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
-        normalize_images: bool = True,
+            self,
+            observation_space: gym.Space,
+            action_space: gym.Space,
+            normalize_images: bool = True,
     ):
         """Initialize the RewardNet.
 
@@ -46,20 +45,20 @@ class RewardNet(nn.Module, abc.ABC):
 
     @abc.abstractmethod
     def forward(
-        self,
-        state: th.Tensor,
-        action: th.Tensor,
-        next_state: th.Tensor,
-        done: th.Tensor,
+            self,
+            state: th.Tensor,
+            action: th.Tensor,
+            next_state: th.Tensor,
+            done: th.Tensor,
     ) -> th.Tensor:
         """Compute rewards for a batch of transitions and keep gradients."""
 
     def preprocess(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
     ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Preprocess a batch of input transitions and convert it to PyTorch tensors.
 
@@ -123,11 +122,11 @@ class RewardNet(nn.Module, abc.ABC):
         return state_th, action_th, next_state_th, done_th
 
     def predict_th(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
     ) -> th.Tensor:
         """Compute th.Tensor rewards for a batch of transitions without gradients.
 
@@ -159,11 +158,11 @@ class RewardNet(nn.Module, abc.ABC):
             return rew_th
 
     def predict(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
     ) -> np.ndarray:
         """Compute rewards for a batch of transitions without gradients.
 
@@ -182,12 +181,12 @@ class RewardNet(nn.Module, abc.ABC):
         return rew_th.detach().cpu().numpy().flatten()
 
     def predict_processed(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            **kwargs,
     ) -> np.ndarray:
         """Compute the processed rewards for a batch of transitions without gradients.
 
@@ -229,9 +228,11 @@ class RewardNet(nn.Module, abc.ABC):
             # if the model has no parameters, default to float32
             return th.get_default_dtype()
 
+
 class RwdFromRwdNet(RewardFn):
     """Use a reward network as a reward function
     """
+
     def __init__(self, rwd_net: RewardNet):
         """Args:
             rwd_net: The reward network to be used as a reward function
@@ -239,13 +240,13 @@ class RwdFromRwdNet(RewardFn):
         self.rwd_net = rwd_net
 
     def __call__(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
     ) -> np.ndarray:
-        #action.reshape(state.shape[0], -1) # for test only
+        # action.reshape(state.shape[0], -1) # for test only
         return self.rwd_net.predict(state, action, next_state, done)
         # return np.zeros(shape=state.shape[:1]) # for test only
 
@@ -258,8 +259,8 @@ class RewardNetWrapper(RewardNet):
     """
 
     def __init__(
-        self,
-        base: RewardNet,
+            self,
+            base: RewardNet,
     ):
         """Initialize a RewardNet wrapper.
 
@@ -288,11 +289,11 @@ class RewardNetWrapper(RewardNet):
         return self.base.dtype
 
     def preprocess(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
     ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         __doc__ = super().preprocess.__doc__  # noqa: F841
         return self.base.preprocess(state, action, next_state, done)
@@ -306,8 +307,8 @@ class ForwardWrapper(RewardNetWrapper):
     """
 
     def __init__(
-        self,
-        base: RewardNet,
+            self,
+            base: RewardNet,
     ):
         """Create a forward wrapper.
 
@@ -338,42 +339,42 @@ class PredictProcessedWrapper(RewardNetWrapper):
     """
 
     def forward(
-        self,
-        state: th.Tensor,
-        action: th.Tensor,
-        next_state: th.Tensor,
-        done: th.Tensor,
+            self,
+            state: th.Tensor,
+            action: th.Tensor,
+            next_state: th.Tensor,
+            done: th.Tensor,
     ) -> th.Tensor:
         """Compute rewards for a batch of transitions and keep gradients."""
         return self.base.forward(state, action, next_state, done)
 
     @abc.abstractmethod
     def predict_processed(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            **kwargs,
     ) -> np.ndarray:
         """Predict processed must be overridden in subclasses."""
 
     def predict(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
     ) -> np.ndarray:
         __doc__ = super().predict.__doc__  # noqa: F841
         return self.base.predict(state, action, next_state, done)
 
     def predict_th(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
     ) -> th.Tensor:
         __doc__ = super().predict_th.__doc__  # noqa: F841
         return self.base.predict_th(state, action, next_state, done)
@@ -384,12 +385,12 @@ class RewardNetWithVariance(RewardNet):
 
     @abc.abstractmethod
     def predict_reward_moments(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            **kwargs,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Compute the mean and variance of the reward distribution.
 
@@ -414,14 +415,14 @@ class BasicRewardNet(RewardNet):
     """
 
     def __init__(
-        self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
-        use_state: bool = True,
-        use_action: bool = True,
-        use_next_state: bool = False,
-        use_done: bool = False,
-        **kwargs,
+            self,
+            observation_space: gym.Space,
+            action_space: gym.Space,
+            use_state: bool = True,
+            use_action: bool = True,
+            use_next_state: bool = False,
+            use_done: bool = False,
+            **kwargs,
     ):
         """Builds reward MLP.
 
@@ -440,16 +441,16 @@ class BasicRewardNet(RewardNet):
         self.use_state = use_state
         if self.use_state:
             combined_size += preprocessing.get_flattened_obs_dim(observation_space)
-            print("combined_size1:",combined_size)
+            print("combined_size1:", combined_size)
 
         self.use_action = use_action
         if self.use_action:
-            #Disctrete spaces are calculated using its one-hot encoding. Example: dim = 2 for Space.Discrete(2)
+            # Disctrete spaces are calculated using its one-hot encoding. Example: dim = 2 for Space.Discrete(2)
             combined_size += preprocessing.get_flattened_obs_dim(action_space)
-            print("combined_size2:",combined_size)
+            print("combined_size2:", combined_size)
 
         self.use_next_state = use_next_state
-        if self.use_next_state:   
+        if self.use_next_state:
             combined_size += preprocessing.get_flattened_obs_dim(observation_space)
 
         self.use_done = use_done
@@ -481,7 +482,7 @@ class BasicRewardNet(RewardNet):
         inputs_concat = th.cat(inputs, dim=1)
 
         outputs = self.mlp(inputs_concat)
-        #print("inputs:", inputs_concat,"outputs:", outputs)
+        # print("inputs:", inputs_concat,"outputs:", outputs)
 
         assert outputs.shape == state.shape[:1]
 
@@ -499,15 +500,15 @@ class CnnRewardNet(RewardNet):
     """
 
     def __init__(
-        self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
-        use_state: bool = True,
-        use_action: bool = True,
-        use_next_state: bool = False,
-        use_done: bool = False,
-        hwc_format: bool = True,
-        **kwargs,
+            self,
+            observation_space: gym.Space,
+            action_space: gym.Space,
+            use_state: bool = True,
+            use_action: bool = True,
+            use_next_state: bool = False,
+            use_done: bool = False,
+            hwc_format: bool = True,
+            **kwargs,
     ):
         """Builds reward CNN.
 
@@ -579,11 +580,11 @@ class CnnRewardNet(RewardNet):
         return space.shape[-1] if self.hwc_format else space.shape[0]
 
     def forward(
-        self,
-        state: th.Tensor,
-        action: th.Tensor,
-        next_state: th.Tensor,
-        done: th.Tensor,
+            self,
+            state: th.Tensor,
+            action: th.Tensor,
+            next_state: th.Tensor,
+            done: th.Tensor,
     ) -> th.Tensor:
         """Computes rewardNet value on input state, action, next_state, and done flag.
 
@@ -645,9 +646,9 @@ class NormalizedRewardNet(PredictProcessedWrapper):
     """A reward net that normalizes the output of its base network."""
 
     def __init__(
-        self,
-        base: RewardNet,
-        normalize_output_layer: Type[networks.BaseNorm],
+            self,
+            base: RewardNet,
+            normalize_output_layer: Type[networks.BaseNorm],
     ):
         """Initialize the NormalizedRewardNet.
 
@@ -666,13 +667,13 @@ class NormalizedRewardNet(PredictProcessedWrapper):
         self.normalize_output_layer = normalize_output_layer(1)
 
     def predict_processed(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        update_stats: bool = True,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            update_stats: bool = True,
+            **kwargs,
     ) -> np.ndarray:
         """Compute normalized rewards for a batch of transitions without gradients.
 
@@ -706,10 +707,10 @@ class ShapedRewardNet(ForwardWrapper):
     """A RewardNet consisting of a base network and a potential shaping."""
 
     def __init__(
-        self,
-        base: RewardNet,
-        potential: Callable[[th.Tensor], th.Tensor],
-        discount_factor: float,
+            self,
+            base: RewardNet,
+            potential: Callable[[th.Tensor], th.Tensor],
+            discount_factor: float,
     ):
         """Setup a ShapedRewardNet instance.
 
@@ -730,11 +731,11 @@ class ShapedRewardNet(ForwardWrapper):
         self.discount_factor = discount_factor
 
     def forward(
-        self,
-        state: th.Tensor,
-        action: th.Tensor,
-        next_state: th.Tensor,
-        done: th.Tensor,
+            self,
+            state: th.Tensor,
+            action: th.Tensor,
+            next_state: th.Tensor,
+            done: th.Tensor,
     ):
         base_reward_net_output = self.base(state, action, next_state, done)
         new_shaping_output = self.potential(next_state).flatten()
@@ -759,9 +760,9 @@ class ShapedRewardNet(ForwardWrapper):
         # length!
         new_shaping = (1 - done.float()) * new_shaping_output
         final_rew = (
-            base_reward_net_output
-            + self.discount_factor * new_shaping
-            - old_shaping_output
+                base_reward_net_output
+                + self.discount_factor * new_shaping
+                - old_shaping_output
         )
         assert final_rew.shape == state.shape[:1]
         return final_rew
@@ -784,18 +785,18 @@ class BasicShapedRewardNet(ShapedRewardNet):
     """
 
     def __init__(
-        self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
-        *,
-        reward_hid_sizes: Sequence[int] = (32,),
-        potential_hid_sizes: Sequence[int] = (32, 32),
-        use_state: bool = True,
-        use_action: bool = True,
-        use_next_state: bool = False,
-        use_done: bool = False,
-        discount_factor: float = 0.99,
-        **kwargs,
+            self,
+            observation_space: gym.Space,
+            action_space: gym.Space,
+            *,
+            reward_hid_sizes: Sequence[int] = (32,),
+            potential_hid_sizes: Sequence[int] = (32, 32),
+            use_state: bool = True,
+            use_action: bool = True,
+            use_next_state: bool = False,
+            use_done: bool = False,
+            discount_factor: float = 0.99,
+            **kwargs,
     ):
         """Builds a simple shaped reward network.
 
@@ -844,10 +845,10 @@ class BasicPotentialMLP(nn.Module):
     """Simple implementation of a potential using an MLP."""
 
     def __init__(
-        self,
-        observation_space: gym.Space,
-        hid_sizes: Iterable[int],
-        **kwargs,
+            self,
+            observation_space: gym.Space,
+            hid_sizes: Iterable[int],
+            **kwargs,
     ):
         """Initialize the potential.
 
@@ -874,11 +875,11 @@ class BasicPotentialCNN(nn.Module):
     """Simple implementation of a potential using a CNN."""
 
     def __init__(
-        self,
-        observation_space: gym.Space,
-        hid_sizes: Iterable[int],
-        hwc_format: bool = True,
-        **kwargs,
+            self,
+            observation_space: gym.Space,
+            hid_sizes: Iterable[int],
+            hwc_format: bool = True,
+            **kwargs,
     ):
         """Initialize the potential.
 
@@ -924,10 +925,10 @@ class RewardEnsemble(RewardNetWithVariance):
     members: nn.ModuleList
 
     def __init__(
-        self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
-        members: Iterable[RewardNet],
+            self,
+            observation_space: gym.Space,
+            action_space: gym.Space,
+            members: Iterable[RewardNet],
     ):
         """Initialize the RewardEnsemble.
 
@@ -955,12 +956,12 @@ class RewardEnsemble(RewardNetWithVariance):
         return len(self.members)
 
     def predict_processed_all(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            **kwargs,
     ) -> np.ndarray:
         """Get the results of predict processed on all of the members.
 
@@ -986,12 +987,12 @@ class RewardEnsemble(RewardNetWithVariance):
 
     @th.no_grad()
     def predict_reward_moments(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            **kwargs,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Compute the standard deviation of the reward distribution for a batch.
 
@@ -1024,23 +1025,23 @@ class RewardEnsemble(RewardNetWithVariance):
         raise NotImplementedError
 
     def predict_processed(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            **kwargs,
     ) -> np.ndarray:
         """Return the mean of the ensemble members."""
         return self.predict(state, action, next_state, done, **kwargs)
 
     def predict(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            **kwargs,
     ):
         """Return the mean of the ensemble members."""
         mean, _ = self.predict_reward_moments(state, action, next_state, done, **kwargs)
@@ -1074,13 +1075,13 @@ class AddSTDRewardWrapper(PredictProcessedWrapper):
         self.default_alpha = default_alpha
 
     def predict_processed(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        next_state: np.ndarray,
-        done: np.ndarray,
-        alpha: Optional[float] = None,
-        **kwargs,
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+            alpha: Optional[float] = None,
+            **kwargs,
     ) -> np.ndarray:
         """Compute a lower/upper confidence bound on the reward without gradients.
 
@@ -1109,6 +1110,8 @@ class AddSTDRewardWrapper(PredictProcessedWrapper):
         )
 
         return reward_mean + alpha * np.sqrt(reward_var)
+
+
 '''
 class EnvRewardNetWrapper(gym.RewardWrapper):
     """Set the reward of an enviornment as the value determined by a supplied reward network

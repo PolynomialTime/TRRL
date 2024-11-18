@@ -26,6 +26,7 @@ from stable_baselines3.common.vec_env import VecEnv
 
 from imitation.data import types
 
+
 def unwrap_traj(traj: types.TrajectoryWithRew) -> types.TrajectoryWithRew:
     """Uses `RolloutInfoWrapper`-captured `obs` and `rews` to replace fields.
 
@@ -68,9 +69,9 @@ class TrajectoryAccumulator:
         self.partial_trajectories = collections.defaultdict(list)
 
     def add_step(
-        self,
-        step_dict: Mapping[str, Union[types.Observation, Mapping[str, Any]]],
-        key: Hashable = None,
+            self,
+            step_dict: Mapping[str, Union[types.Observation, Mapping[str, Any]]],
+            key: Hashable = None,
     ) -> None:
         """Add a single step to the partial trajectory identified by `key`.
 
@@ -87,9 +88,9 @@ class TrajectoryAccumulator:
         self.partial_trajectories[key].append(step_dict)
 
     def finish_trajectory(
-        self,
-        key: Hashable,
-        terminal: bool,
+            self,
+            key: Hashable,
+            terminal: bool,
     ) -> types.TrajectoryWithRew:
         """Complete the trajectory labelled with `key`.
 
@@ -117,12 +118,12 @@ class TrajectoryAccumulator:
         return traj
 
     def add_steps_and_auto_finish(
-        self,
-        acts: np.ndarray,
-        obs: Union[types.Observation, Dict[str, np.ndarray]],
-        rews: np.ndarray,
-        dones: np.ndarray,
-        infos: List[dict],
+            self,
+            acts: np.ndarray,
+            obs: Union[types.Observation, Dict[str, np.ndarray]],
+            rews: np.ndarray,
+            dones: np.ndarray,
+            infos: List[dict],
     ) -> List[types.TrajectoryWithRew]:
         """Calls `add_step` repeatedly using acts and the returns from `venv.step`.
 
@@ -223,8 +224,8 @@ def make_min_timesteps(n: int) -> GenTrajTerminationFn:
 
 
 def make_sample_until(
-    min_timesteps: Optional[int] = None,
-    min_episodes: Optional[int] = None,
+        min_timesteps: Optional[int] = None,
+        min_episodes: Optional[int] = None,
 ) -> GenTrajTerminationFn:
     """Returns a termination condition sampling for a number of timesteps and episodes.
 
@@ -285,17 +286,17 @@ AnyPolicy = Union[BaseAlgorithm, BasePolicy, PolicyCallable, None]
 
 
 def policy_to_callable(
-    policy: AnyPolicy,
-    venv: VecEnv,
-    deterministic_policy: bool = False,
+        policy: AnyPolicy,
+        venv: VecEnv,
+        deterministic_policy: bool = False,
 ) -> PolicyCallable:
     """Converts any policy-like object into a function from observations to actions."""
     get_actions: PolicyCallable
     if policy is None:
         def get_actions(
-            observations: Union[np.ndarray, Dict[str, np.ndarray]],
-            states: Optional[Tuple[np.ndarray, ...]],
-            episode_starts: Optional[np.ndarray],
+                observations: Union[np.ndarray, Dict[str, np.ndarray]],
+                states: Optional[Tuple[np.ndarray, ...]],
+                episode_starts: Optional[np.ndarray],
         ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
             acts = [venv.action_space.sample() for _ in range(len(observations))]
             return np.stack(acts, axis=0), None
@@ -306,9 +307,9 @@ def policy_to_callable(
         # we want to use the .predict() method, rather than __call__()
         # (which would call .forward()). So this elif clause must come first!
         def get_actions(
-            observations: Union[np.ndarray, Dict[str, np.ndarray]],
-            states: Optional[Tuple[np.ndarray, ...]],
-            episode_starts: Optional[np.ndarray],
+                observations: Union[np.ndarray, Dict[str, np.ndarray]],
+                states: Optional[Tuple[np.ndarray, ...]],
+                episode_starts: Optional[np.ndarray],
         ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
             assert isinstance(policy, (BaseAlgorithm, BasePolicy))
             # pytype doesn't seem to understand that policy is a BaseAlgorithm
@@ -377,14 +378,14 @@ def policy_to_callable(
 
 
 def generate_trajectories(
-    policy: AnyPolicy,
-    venv: VecEnv,
-    sample_until: GenTrajTerminationFn,
-    rng: np.random.Generator,
-    starting_state: None,
-    starting_action: None,
-    *,
-    deterministic_policy: bool = False,
+        policy: AnyPolicy,
+        venv: VecEnv,
+        sample_until: GenTrajTerminationFn,
+        rng: np.random.Generator,
+        starting_state: None,
+        starting_action: None,
+        *,
+        deterministic_policy: bool = False,
 ) -> Sequence[types.TrajectoryWithRew]:
     """Generate trajectory dictionaries from a policy and an environment.
 
@@ -445,7 +446,6 @@ def generate_trajectories(
     #
     # To start with, all environments are active.
     active = np.ones(venv.num_envs, dtype=bool)
-
 
     state = None
     dones = np.zeros(venv.num_envs, dtype=bool)
@@ -523,7 +523,7 @@ def generate_trajectories(
 
 
 def rollout_stats(
-    trajectories: Sequence[types.TrajectoryWithRew],
+        trajectories: Sequence[types.TrajectoryWithRew],
 ) -> Mapping[str, float]:
     """Calculates various stats for a sequence of trajectories.
 
@@ -577,7 +577,7 @@ def rollout_stats(
 
 
 def flatten_trajectories(
-    trajectories: Iterable[types.Trajectory],
+        trajectories: Iterable[types.Trajectory],
 ) -> types.Transitions:
     """Flatten a series of trajectory dictionaries into arrays.
 
@@ -627,7 +627,7 @@ def flatten_trajectories(
 
 
 def flatten_trajectories_with_rew(
-    trajectories: Sequence[types.TrajectoryWithRew],
+        trajectories: Sequence[types.TrajectoryWithRew],
 ) -> types.TransitionsWithRew:
     transitions = flatten_trajectories(trajectories)
     rews = np.concatenate([traj.rews for traj in trajectories])
@@ -638,15 +638,15 @@ def flatten_trajectories_with_rew(
 
 
 def generate_transitions(
-    policy: AnyPolicy,
-    venv: VecEnv,
-    n_timesteps: int,
-    rng: np.random.Generator,
-    *,
-    starting_state: None,
-    starting_action: None,
-    truncate: bool = True,
-    **kwargs: Any,
+        policy: AnyPolicy,
+        venv: VecEnv,
+        n_timesteps: int,
+        rng: np.random.Generator,
+        *,
+        starting_state: None,
+        starting_action: None,
+        truncate: bool = True,
+        **kwargs: Any,
 ) -> types.TransitionsWithRew:
     """Generate obs-action-next_obs-reward tuples.
 
@@ -690,17 +690,17 @@ def generate_transitions(
 
 
 def rollout(
-    policy: AnyPolicy,
-    venv: VecEnv,
-    sample_until: GenTrajTerminationFn,
-    rng: np.random.Generator,
-    *,
-    unwrap: bool = True,
-    exclude_infos: bool = True,
-    verbose: bool = True,
-    starting_state: None,
-    starting_action: None,
-    **kwargs: Any,
+        policy: AnyPolicy,
+        venv: VecEnv,
+        sample_until: GenTrajTerminationFn,
+        rng: np.random.Generator,
+        *,
+        unwrap: bool = True,
+        exclude_infos: bool = True,
+        verbose: bool = True,
+        starting_state: None,
+        starting_action: None,
+        **kwargs: Any,
 ) -> Sequence[types.TrajectoryWithRew]:
     """Generate policy rollouts.
 
@@ -741,8 +741,8 @@ def rollout(
         venv,
         sample_until,
         rng=rng,
-        starting_state = starting_state,
-        starting_action = starting_action,
+        starting_state=starting_state,
+        starting_action=starting_action,
         **kwargs,
     )
     if unwrap:

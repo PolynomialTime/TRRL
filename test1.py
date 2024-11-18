@@ -8,7 +8,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.ppo import MlpPolicy
 
 from imitation.algorithms import bc
-#from imitation.data import rollout
+# from imitation.data import rollout
 from imitation.data.wrappers import RolloutInfoWrapper
 from imitation.policies.serialize import load_policy
 from imitation.util.util import make_vec_env
@@ -21,7 +21,7 @@ env = make_vec_env(
     "CartPole-v1",
     n_envs=2,
     rng=rng,
-    #post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
+    # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
 )
 '''
 x = env.unwrapped.envs[0].unwrapped.state
@@ -32,7 +32,7 @@ if env.num_envs > 1:
         
 print(x)
 '''
- 
+
 
 def train_expert():
     # note: use `download_expert` instead to download a pretrained, competent expert
@@ -64,20 +64,19 @@ def download_expert():
 
 def sample_expert_transitions():
     expert = train_expert()  # uncomment to train your own expert
-    #expert = download_expert()
+    # expert = download_expert()
 
     print("Sampling expert transitions.")
 
-    
     train = rollouts.generate_trajectories(
         expert,
         env,
         rollouts.make_sample_until(min_timesteps=None, min_episodes=2),
         rng=rng,
-        starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
-        starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
+        starting_state=None,  # np.array([0.1, 0.1, 0.1, 0.1]),
+        starting_action=None,  # np.array([[1,], [1,],], dtype=np.integer)
     )
-    
+
     '''
     rollouts = rollout.generate_transitions(
         expert,
@@ -90,16 +89,15 @@ def sample_expert_transitions():
     )
     '''
     return rollouts.flatten_trajectories(train)
-    #return rollouts
-
+    # return rollouts
 
 
 transitions = sample_expert_transitions()
 
-#transitions.obs.shape[0]
-#x, y = transitions.obs.shape
-#print(len(transitions))
-#print(transitions)
+# transitions.obs.shape[0]
+# x, y = transitions.obs.shape
+# print(len(transitions))
+# print(transitions)
 
 '''
 bc_trainer = bc.BC(
