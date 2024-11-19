@@ -70,8 +70,8 @@ def sample_expert_transitions(expert: policies):
 
 
 # expert = train_expert()  # uncomment to train your own expert
-expert = PPO.load("Lake_expert_policy")
-# expert = PPO.load("Pole_expert_policy")
+expert = PPO.load("./expert_data/Lake_expert_policy")
+# expert = PPO.load("./expert_data/Pole_expert_policy")
 
 mean_reward, std_reward = evaluate_policy(model=expert, env=env)
 print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')

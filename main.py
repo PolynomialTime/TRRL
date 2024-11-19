@@ -52,7 +52,6 @@ def train_expert():
     expert.learn(100_000)  # Note: change this to 100_000 to train a decent expert.
     return expert
 
-
 def sample_expert_transitions(expert: policies):
     print("Sampling expert transitions.")
     trajs = rollouts.generate_trajectories(
