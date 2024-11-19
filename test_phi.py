@@ -29,10 +29,12 @@ env = make_vec_env(
     arglist.env_name,
     n_envs=arglist.n_env,
     rng=rng,
-    #post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
+    # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
 )
 
 print(arglist.env_name)
+
+
 def train_expert():
     # note: use `download_expert` instead to download a pretrained, competent expert
     print("Training an expert.")
@@ -51,6 +53,7 @@ def train_expert():
     expert.save("expert_policy")
     return expert
 
+
 def sample_expert_transitions(expert: policies):
     print("Sampling expert transitions.")
     trajs = rollouts.generate_trajectories(
@@ -58,23 +61,24 @@ def sample_expert_transitions(expert: policies):
         env,
         rollouts.make_sample_until(min_timesteps=None, min_episodes=512),
         rng=rng,
-        starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
-        starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
+        starting_state=None,  # np.array([0.1, 0.1, 0.1, 0.1]),
+        starting_action=None,  # np.array([[1,], [1,],], dtype=np.integer)
     )
 
     return rollouts.flatten_trajectories(trajs)
-    #return rollouts
+    # return rollouts
 
-#expert = train_expert()  # uncomment to train your own expert
-expert = PPO.load("Lake_expert_policy")
-#expert = PPO.load("Pole_expert_policy")
+
+# expert = train_expert()  # uncomment to train your own expert
+expert = PPO.load("./expert_data/Lake_expert_policy")
+# expert = PPO.load("./expert_data/Pole_expert_policy")
 
 mean_reward, std_reward = evaluate_policy(model=expert, env=env)
 print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
 
 transitions = sample_expert_transitions(expert)
 print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
-#print("transitions:",transitions)
+# print("transitions:",transitions)
 
 obs = transitions.obs
 actions = transitions.acts
@@ -82,7 +86,8 @@ infos = transitions.infos
 next_obs = transitions.next_obs
 dones = transitions.dones
 
-rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space, env.unwrapped.envs[0].unwrapped.action_space)
+rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space,
+                         env.unwrapped.envs[0].unwrapped.action_space)
 
 if arglist.device == 'cpu':
     DEVICE = torch.device('cpu')
@@ -128,10 +133,10 @@ trrl_trainer = TRRL(
     l2_norm_upper_bound=arglist.l2_norm_upper_bound,
     ent_coef=arglist.ent_coef,
     device=DEVICE,
-    n_policy_updates_per_round=10,#arglist.n_policy_updates_per_round,
-    n_reward_updates_per_round=3,#arglist.n_reward_updates_per_round,
-    n_episodes_adv_fn_est=3,#arglist.n_episodes_adv_fn_est,
-    n_timesteps_adv_fn_est=10#arglist.n_timesteps_adv_fn_est
+    n_policy_updates_per_round=10,  # arglist.n_policy_updates_per_round,
+    n_reward_updates_per_round=3,  # arglist.n_reward_updates_per_round,
+    n_episodes_adv_fn_est=3,  # arglist.n_episodes_adv_fn_est,
+    n_timesteps_adv_fn_est=10  # arglist.n_timesteps_adv_fn_est
 )
 print("Starting reward learning.")
 

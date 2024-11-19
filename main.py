@@ -29,10 +29,12 @@ env = make_vec_env(
     arglist.env_name,
     n_envs=arglist.n_env,
     rng=rng,
-    #post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
+    # post_wrappers=[lambda env, _: RolloutInfoWrapper(env)],  # for computing rollouts
 )
 
 print(arglist.env_name)
+
+
 def train_expert():
     # note: use `download_expert` instead to download a pretrained, competent expert
     print("Training an expert.")
@@ -57,12 +59,13 @@ def sample_expert_transitions(expert: policies):
         env,
         rollouts.make_sample_until(min_timesteps=None, min_episodes=10),
         rng=rng,
-        starting_state= None, #np.array([0.1, 0.1, 0.1, 0.1]),
-        starting_action=None, #np.array([[1,], [1,],], dtype=np.integer)
+        starting_state=None,  # np.array([0.1, 0.1, 0.1, 0.1]),
+        starting_action=None,  # np.array([[1,], [1,],], dtype=np.integer)
     )
 
     return rollouts.flatten_trajectories(trajs)
-    #return rollouts
+    # return rollouts
+
 
 expert = train_expert()  # uncomment to train your own expert
 
@@ -72,7 +75,8 @@ print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' 
 transitions = sample_expert_transitions(expert)
 print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
 
-rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space, env.unwrapped.envs[0].unwrapped.action_space)
+rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space,
+                         env.unwrapped.envs[0].unwrapped.action_space)
 
 if arglist.device == 'cpu':
     DEVICE = torch.device('cpu')
