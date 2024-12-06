@@ -15,7 +15,8 @@ def parse_args():
 
     # environment
     # parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
-    parser.add_argument("--env_name", type=str, default="FrozenLake-v1", help="the environment")
+    # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3
+    parser.add_argument("--env_name", type=str, default="Walker2d-v3", help="the environment")
     parser.add_argument("--n_env", type=int, default=1, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")

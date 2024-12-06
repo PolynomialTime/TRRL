@@ -455,7 +455,7 @@ def generate_trajectories(
         init_acts = None
 
         if starting_action is not None:
-            init_acts = np.repeat(starting_action, repeats=[venv.num_envs], axis=0)
+            init_acts = np.repeat([starting_action], repeats=[venv.num_envs], axis=0)
         else:
             init_acts, state = get_actions(init_obs, state, dones)
 

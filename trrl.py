@@ -262,7 +262,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
     ########################################################################
 
-    @timeit_decorator
+    #@timeit_decorator
     def est_adv_fn_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
                                          n_timesteps: int, n_episodes: int, use_mc=False) -> torch.Tensor:
         """Use Monte-Carlo or Importance Sampling to estimate the advantage function of the given state and action under the
@@ -437,7 +437,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         return new_policy
 
     @timeit_decorator
-    def update_reward(self):
+    def update_reward(self, use_mc=False):
         """Perform a single reward update by conducting a complete pass over the demonstrations, 
         optionally using provided samples. The loss is adapted from the constrained optimisation 
         problem of the trust region reward learning by Lagrangian multipliers (moving the constraints 
@@ -515,7 +515,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             self._global_step += 1
 
-    @timeit_decorator
+   # @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
