@@ -16,6 +16,8 @@ from typing import (
     Tuple,
     Union,
 )
+import arguments
+arglist = arguments.parse_args()
 
 import numpy as np
 from gymnasium import spaces
@@ -417,18 +419,21 @@ def generate_trajectories(
     trajectories = []
     # accumulator for incomplete trajectories
     trajectories_accum = TrajectoryAccumulator()
+    obs = venv.reset()
 
-    init_obs = venv.reset()
     if starting_state is not None:
-        for e in venv.unwrapped.envs:
-            e.unwrapped.state = starting_state
-        init_obs = np.repeat([starting_state], repeats=[venv.num_envs], axis=0)
+        # Fix Pendulum bug:ValueError: too many values to unpack (expected 2)
+        if arglist.env_name not in ("Acrobot-v1","Pendulum-v1") :
+            for e in venv.unwrapped.envs:
+                e.unwrapped.state = starting_state
+
+        obs = np.repeat([starting_state], repeats=[venv.num_envs], axis=0)
 
     assert isinstance(
-        init_obs,
+        obs,
         (np.ndarray, dict),
     ), "Tuple observations are not supported."
-    wrapped_obs = types.maybe_wrap_in_dictobs(init_obs)
+    wrapped_obs = types.maybe_wrap_in_dictobs(obs)
     # we use dictobs to iterate over the envs in a vecenv
     for env_idx, ob in enumerate(wrapped_obs):
         # Seed with first obs only. Inside loop, we'll only add second obs from
@@ -446,21 +451,17 @@ def generate_trajectories(
     #
     # To start with, all environments are active.
     active = np.ones(venv.num_envs, dtype=bool)
-
     state = None
     dones = np.zeros(venv.num_envs, dtype=bool)
     while np.any(active):
         # policy gets unwrapped observations (eg as dict, not dictobs)
 
-        init_acts = None
-
         if starting_action is not None:
-            init_acts = np.repeat([starting_action], repeats=[venv.num_envs], axis=0)
+            acts = np.repeat([starting_action], repeats=[venv.num_envs], axis=0)
         else:
-            init_acts, state = get_actions(init_obs, state, dones)
+            acts, state = get_actions(obs, state, dones)
 
-        obs, rews, dones, infos = venv.step(init_acts)
-        init_obs = obs
+        obs, rews, dones, infos = venv.step(acts)
 
         assert isinstance(
             obs,
@@ -475,7 +476,7 @@ def generate_trajectories(
         dones &= active
 
         new_trajs = trajectories_accum.add_steps_and_auto_finish(
-            init_acts,
+            acts,
             wrapped_obs,
             rews,
             dones,
