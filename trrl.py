@@ -44,6 +44,21 @@ def timeit_decorator(func):
     return wrapper
 
 
+class CustomResetEnv(gym.Env):
+    def __init__(self, env):
+        self.env = env
+
+    def reset(self, custom_state=None):
+        obs = self.env.reset()
+        if custom_state is not None:
+            self.env.state = custom_state  # 设置自定义状态
+            obs = self.env._get_obs()  # 调用环境的观测生成函数
+        return obs
+
+    def step(self, action):
+        return self.env.step(action)
+
+
 class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     """Trust Region Reward Learning (TRRL).
 
@@ -262,7 +277,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
     ########################################################################
 
-    #@timeit_decorator
+    # @timeit_decorator
     def est_adv_fn_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
                                          n_timesteps: int, n_episodes: int, use_mc=False) -> torch.Tensor:
         """Use Monte-Carlo or Importance Sampling to estimate the advantage function of the given state and action under the
@@ -312,6 +327,15 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                     starting_action=starting_a,
                     truncate=True,
                 )
+                # tran = rollout.generate_transitions(
+                #     self._old_policy,
+                #     env,
+                #     rng=rng,
+                #     n_timesteps=n_timesteps,
+                #     #starting_state=starting_s,
+                #     #starting_action=starting_a,
+                #     truncate=True,
+                # )
                 self.store_trajectory(tran)  # Store the new trajectory in buffer
             else:
                 # Importance Sampling: Sample an old trajectory from the buffer
@@ -366,7 +390,16 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 starting_action=None,
                 truncate=True,
             )
-
+            #
+            # tran = rollout.generate_transitions(
+            #     self._old_policy,
+            #     env,
+            #     n_timesteps=n_timesteps,
+            #     rng=rng,
+            #     #starting_state=starting_s,
+            #     #starting_action=None,
+            #     truncate=True,
+            # )
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
 
@@ -515,7 +548,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             self._global_step += 1
 
-   # @timeit_decorator
+    # @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:

@@ -15,8 +15,8 @@ from imitation.util.util import make_vec_env
 import gymnasium as gym
 
 from reward_function import BasicRewardNet
-import rollouts
 from trrl import TRRL
+from imitation.data import rollout
 
 from typing import (
     List,
@@ -33,6 +33,8 @@ env = make_vec_env(
 )
 
 print(arglist.env_name)
+print("env.reset"
+      "",env.reset())
 
 
 def train_expert():
@@ -56,17 +58,16 @@ def train_expert():
 
 def sample_expert_transitions(expert: policies):
     print("Sampling expert transitions.")
-    trajs = rollouts.generate_trajectories(
+    trajs = rollout.generate_trajectories(
         expert,
         env,
-        rollouts.make_sample_until(min_timesteps=None, min_episodes=512),
+        rollout.make_sample_until(min_timesteps=None, min_episodes=512),
         rng=rng,
-        starting_state=None,  # np.array([0.1, 0.1, 0.1, 0.1]),
-        starting_action=None,  # np.array([[1,], [1,],], dtype=np.integer)
+        #starting_state=None,  # np.array([0.1, 0.1, 0.1, 0.1]),
+        #starting_action=None,  # np.array([[1,], [1,],], dtype=np.integer)
     )
 
-    return rollouts.flatten_trajectories(trajs)
-    # return rollouts
+    return rollout.flatten_trajectories(trajs)
 
 
 #expert = train_expert()  # uncomment to train your own expert
@@ -118,25 +119,5 @@ trrl_trainer = TRRL(
     n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est
 )
 print("Starting reward learning.")
-
-# menglin
-# trrl_trainer = TRRL(
-#     venv=env,
-#     expert_policy=expert,
-#     demonstrations=transitions,
-#     demo_batch_size=arglist.demo_batch_size,
-#     reward_net=rwd_net,
-#     discount=arglist.discount,
-#     avg_diff_coef=arglist.avg_reward_diff_coef,
-#     l2_norm_coef=arglist.avg_reward_diff_coef,
-#     l2_norm_upper_bound=arglist.l2_norm_upper_bound,
-#     ent_coef=arglist.ent_coef,
-#     device=DEVICE,
-#     n_policy_updates_per_round=10,  # arglist.n_policy_updates_per_round,
-#     n_reward_updates_per_round=3,  # arglist.n_reward_updates_per_round,
-#     n_episodes_adv_fn_est=3,  # arglist.n_episodes_adv_fn_est,
-#     n_timesteps_adv_fn_est=10  # arglist.n_timesteps_adv_fn_est
-# )
-# print("Starting reward learning.")
 
 trrl_trainer.train(n_rounds=arglist.n_runs)
