@@ -12,12 +12,11 @@ import numpy as np
 import gymnasium as gym
 from functools import wraps
 from stable_baselines3.common.evaluation import evaluate_policy
-import datetime
 
 from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
 from stable_baselines3.common import policies, vec_env, evaluation, preprocessing
-
+import datetime
 from imitation.algorithms import base as algo_base
 from imitation.algorithms import base
 from imitation.data import types
@@ -76,10 +75,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger: Optional[logger.HierarchicalLogger] = None,
             reward_net: RewardNet,
             discount: np.float32,
-            t_kl:np.float32,
             avg_diff_coef: np.float32,
             l2_norm_coef: np.float32,
             l2_norm_upper_bound: np.float32,
+            t_kl:np.float32,
             ent_coef: np.float32 = 0.01,
             rwd_opt_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
             device: torch.device = torch.device("cpu"),
@@ -567,11 +566,12 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             print(f"Current L2 diff: {l2_norm_reward_diff.item():.4f}, adjusted l2_norm_coef: {self.l2_norm_coef.item():.6f}")
 
             ####################################################################
+
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff + self.l2_norm_upper_bound
             print(self._global_step, "loss:", loss, "avg_advantages:", avg_advantages, "avg_reward_diff:",
                   avg_reward_diff, "l2_norm_reward_diff:", l2_norm_reward_diff)
 
-            loss =  -loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
+            loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
             self._rwd_opt.zero_grad()
             loss.backward()
@@ -586,7 +586,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             self._global_step += 1
 
-    # @timeit_decorator
+     # @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
