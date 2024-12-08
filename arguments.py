@@ -16,7 +16,7 @@ def parse_args():
     # environment
     # parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
     # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3
-    parser.add_argument("--env_name", type=str, default="FrozenLake-v1", help="the environment")
+    parser.add_argument("--env_name", type=str, default="Acrobot-v1", help="the environment")
     parser.add_argument("--n_env", type=int, default=2, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
@@ -34,7 +34,7 @@ def parse_args():
                         help="upper bound for the l2 norm of the difference between the old and new reward function")
 
     # experiment control parameters
-    parser.add_argument("--n_runs", type=int, default=1000, help="number of global rounds")
+    parser.add_argument("--n_runs", type=int, default=10, help="number of global rounds")
     parser.add_argument("--n_policy_updates_per_round", type=int, default=300,
                         help="number of policy udpates per global round")
     parser.add_argument("--n_reward_updates_per_round", type=int, default=3,
