@@ -26,15 +26,15 @@ def parse_args():
     parser.add_argument("--max_epoch", type=int, default=100, help="maximum epoch length")
     parser.add_argument("--max_grad_norm", type=float, default=0.5, help="max gradient norm for clip")
     parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for adam optimizer")
-    parser.add_argument("--avg_reward_diff_coef", type=float, default=0.1, 
+    parser.add_argument("--avg_reward_diff_coef", type=float, default=0.1,
                         help="Langrange multiplier for the average difference between the old and new reward function")
-    parser.add_argument("--l2_norm_coef", type=float, default=0.1, 
+    parser.add_argument("--l2_norm_coef", type=float, default=0.1,
                         help="Langrange multiplier for the l2 norm of the difference between the old and new reward function")
-    parser.add_argument("--l2_norm_upper_bound", type=float, default=0.1, 
+    parser.add_argument("--l2_norm_upper_bound", type=float, default=0.1,
                         help="upper bound for the l2 norm of the difference between the old and new reward function")
     
     #adaptive coef adjustment paremeters
-    parser.add_argument("--t_kl", type=float, default=1000, 
+    parser.add_argument("--t_kl", type=float, default=1000,
                         help="KL divergence threshold for dynamic adjustment of  Lagrange multiplier.")
 
     # experiment control parameters
