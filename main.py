@@ -101,10 +101,10 @@ trrl_trainer = TRRL(
     l2_norm_upper_bound=arglist.l2_norm_upper_bound,
     ent_coef=arglist.ent_coef,
     device=DEVICE,
-    n_policy_updates_per_round=10,#arglist.n_policy_updates_per_round,
-    n_reward_updates_per_round=2,#arglist.n_reward_updates_per_round,
-    n_episodes_adv_fn_est=1,#arglist.n_episodes_adv_fn_est,
-    n_timesteps_adv_fn_est=5,#arglist.n_timesteps_adv_fn_est,
+    n_policy_updates_per_round=arglist.n_policy_updates_per_round,
+    n_reward_updates_per_round=arglist.n_reward_updates_per_round,
+    n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
+    n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est,
     t_kl=arglist.t_kl
 )
 print("Starting reward learning.")

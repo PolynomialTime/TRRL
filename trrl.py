@@ -571,7 +571,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             print(self._global_step, "loss:", loss, "avg_advantages:", avg_advantages, "avg_reward_diff:",
                   avg_reward_diff, "l2_norm_reward_diff:", l2_norm_reward_diff)
 
-            loss =  -loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
+            loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
             self._rwd_opt.zero_grad()
             loss.backward()
