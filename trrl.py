@@ -12,6 +12,7 @@ import numpy as np
 import gymnasium as gym
 from functools import wraps
 from stable_baselines3.common.evaluation import evaluate_policy
+import datetime
 
 from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
@@ -75,6 +76,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger: Optional[logger.HierarchicalLogger] = None,
             reward_net: RewardNet,
             discount: np.float32,
+            t_kl:np.float32,
             avg_diff_coef: np.float32,
             l2_norm_coef: np.float32,
             l2_norm_upper_bound: np.float32,
@@ -125,6 +127,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.avg_diff_coef = avg_diff_coef
         self.l2_norm_coef = l2_norm_coef
         self.l2_norm_upper_bound = l2_norm_upper_bound
+        self.t_kl = t_kl
         # self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
         self.venv = venv
         self.device = device
@@ -529,6 +532,41 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
 
+            ####################################################################
+            #adaptive Lagrange multiplier
+            distance = self.expert_kl
+            t_kl= self.t_kl
+            print("\nThreshold is:", t_kl,"coef is:",self.avg_diff_coef)
+            if distance > self.t_kl * 1.5:
+                self.avg_diff_coef *= 1.2  # 增加 Lagrange 乘子系数
+            elif distance < self.t_kl / 1.5:
+                self.avg_diff_coef /= 1.2  # 减小 Lagrange 乘子系数
+
+            # Ensure avg_diff_coef is a tensor before applying clamp
+            self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
+            self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-5, max=1e5)
+
+            # 设定参考阈值与缩放因子（根据实际情况调整）
+            l2_norm_target_lower = 0.01     # 当l2_norm_reward_diff低于该值时，说明更新过于保守，可减少约束
+            l2_norm_target_upper = 1     # 当l2_norm_reward_diff高于该值时，说明更新过大，需要加强约束
+            scaling_factor_increase = 1.1   # 增大系数时的倍率
+            scaling_factor_decrease = 1.1   # 减小系数时的倍率
+
+            if l2_norm_reward_diff > l2_norm_target_upper:
+                # 更新幅度过大，需要加强约束
+                self.l2_norm_coef *= scaling_factor_increase
+            elif l2_norm_reward_diff < l2_norm_target_lower:
+                # 更新幅度过小，可能过于保守，适度放宽约束
+                self.l2_norm_coef /= scaling_factor_decrease
+
+            # 限制 l2_norm_coef 的范围，防止出现过大或过小的情况
+            self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
+            self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-6, max=1e3)
+
+            # 打印或记录当前状态，便于调试和观察
+            print(f"Current L2 diff: {l2_norm_reward_diff.item():.4f}, adjusted l2_norm_coef: {self.l2_norm_coef.item():.6f}")
+
+            ####################################################################
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff + self.l2_norm_upper_bound
             print(self._global_step, "loss:", loss, "avg_advantages:", avg_advantages, "avg_reward_diff:",
                   avg_reward_diff, "l2_norm_reward_diff:", l2_norm_reward_diff)
@@ -559,10 +597,20 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # TODO: Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
         global writer
-        writer = tb.SummaryWriter('./logs/', flush_secs=1)
+        # 获取当前时间并格式化
+        current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 创建带时间戳的日志目录，例如：logs/20231201_103000
+        log_dir = f"logs/{current_time}"
+
+        writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
+        #writer = tb.SummaryWriter('./logs/', flush_secs=1)
 
         print("n_policy_updates_per_round:", self.n_policy_updates_per_round)
         print("n_reward_updates_per_round:", self.n_reward_updates_per_round)
+
+        # 设置保存模型的轮数间隔
+        save_interval = 50  
 
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
@@ -586,6 +634,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self.logger.record("round " + str(r),
                                'Distance: ' + str(distance) + '. Reward: ' + str(self.evaluate_policy))
             self.logger.dump(step=10)
+
+            # 每隔 save_interval 轮保存一次模型参数
+            if (r + 1) % save_interval == 0:
+                # 使用state_dict保存模型参数
+                save_path = os.path.join(log_dir, f"reward_net_state_dict_round_{r+1}.pth")
+                torch.save(self._reward_net.state_dict(), save_path)
+                print(f"Saved reward net state dict at {save_path}")
+
             if callback:
                 callback(r)
 

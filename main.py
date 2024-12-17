@@ -104,7 +104,8 @@ trrl_trainer = TRRL(
     n_policy_updates_per_round=arglist.n_policy_updates_per_round,
     n_reward_updates_per_round=arglist.n_reward_updates_per_round,
     n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
-    n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est
+    n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est,
+    t_kl=arglist.t_kl
 )
 print("Starting reward learning.")
 
