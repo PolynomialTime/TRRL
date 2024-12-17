@@ -273,7 +273,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             starting_s = starting_state
 
         q = torch.zeros(1).to(self.device)
-
+        discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
+                              torch.arange(0, n_timesteps, device=self.device))
         for ep_idx in range(n_episodes):
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
@@ -289,7 +290,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 )
                 end_time = time.perf_counter()
                 print("sampling (s,a) time=",end_time - start_time)
-                self.store_trajectory(tran)  # Store the new trajectory in buffer
+                #self.store_trajectory(tran)  # Store the new trajectory in buffer
             else:
                 # Importance Sampling: Sample an old trajectory from the buffer
                 print("importance sampling (s,a)")
@@ -299,9 +300,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-            discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
-                                  torch.arange(0, n_timesteps, device=self.device))
-            print("rwds=",rwds)
+
             if use_mc:
                 q += torch.dot(rwds, discounts)
             else:
@@ -329,24 +328,13 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
-
-            # Ensure tensors are on the correct device
-            state_th = state_th.to(self.device)
-            action_th = action_th.to(self.device)
-            next_state_th = next_state_th.to(self.device)
-            done_th = done_th.to(self.device)
-
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-            discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
-                                  torch.arange(0, n_timesteps, device=self.device))
-
             if use_mc:
                 v += torch.dot(rwds, discounts)
             else:
                 weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
                 v += torch.dot(weights * rwds, discounts)
 
-        # env.close()
         return (q - v) / n_episodes
 
     #@timeit_decorator
@@ -370,10 +358,12 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         new_policy = PPO(
             policy=MlpPolicy,
             env=venv_with_cur_rwd_net,
+            n_steps = 1024,
             batch_size=64,
             learning_rate=0.0005,
-            n_epochs=10,
-            gamma=self.discount
+            n_epochs=5,
+            gamma=self.discount,
+            device='cpu'
         )
 
         new_policy.learn(self.n_policy_updates_per_round)
@@ -400,7 +390,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # initialise the optimiser for the reward net
         # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing GD.
         batch_iter = self._make_reward_train_batches()
-        print("batch_iter=",batch_iter)
 
         for batch in batch_iter:
 
@@ -422,6 +411,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                                                                           n_timesteps=self.n_timesteps_adv_fn_est,
                                                                           n_episodes=self.n_episodes_adv_fn_est,
                                                                           use_mc=use_mc)
+                print("cumul_advantages=",cumul_advantages)
 
             avg_advantages = cumul_advantages / obs.shape[0]
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
@@ -432,7 +422,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 print("self._old_reward_net is None")
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
-                # TODO: in the first episode, diff=0 because the old reward equals the new one
+                # in the first episode, diff=0 because the old reward equals the new one
                 reward_diff = self._reward_net(state_th, action_th, next_state_th,
                                                done_th) - self._old_reward_net.predict_th(obs, acts, next_obs,
                                                                                           dones).to(self.device)
@@ -448,7 +438,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 self.avg_diff_coef = self.avg_diff_coef * 1.2
             elif temp_kl < self.target_kl / 1.5:
                 self.avg_diff_coef = self.avg_diff_coef / 1.2
-            print("self.avg_diff_coef=",self.avg_diff_coef)
 
             self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
             self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
@@ -457,15 +446,18 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 self.l2_norm_coef = self.l2_norm_coef * 1.1
             elif l2_norm_reward_diff < 0.01:
                 self.l2_norm_coef = self.l2_norm_coef / 1.1
-            print("self.l2_norm_coef=",self.l2_norm_coef)
 
             self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
-            print(self._global_step, "loss:", loss, "avg_advantages:", avg_advantages, "avg_reward_diff:",
-                  avg_reward_diff, "l2_norm_reward_diff:", l2_norm_reward_diff)
+            print(self._global_step, "loss:", loss,
+                  "avg_advantages:", avg_advantages,
+                  "self.avg_diff_coef:", self.avg_diff_coef,
+                  "avg_reward_diff:",avg_reward_diff,
+                  "self.l2_norm_coef:", self.l2_norm_coef,
+                  "l2_norm_reward_diff:", l2_norm_reward_diff)
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
@@ -511,7 +503,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             print("trian_ppo_time=",trian_ppo_time-start_time)
 
             # Determine whether to use Monte Carlo or Importance Sampling
-            use_mc = (r % 20 == 0)
+            #use_mc = (r % 20 == 0)
+            use_mc = True
 
             # Update the reward network.
             for _ in range(self.n_reward_updates_per_round):
@@ -530,10 +523,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self.logger.record("round " + str(r),'Distance: ' + str(distance) + '. Reward: ' + str(reward))
             self.logger.dump(step=10)
 
-            # 每隔 save_interval 轮保存一次模型参数
-            if (r + 1) % save_interval == 0:
-                # 使用state_dict保存模型参数
-                save_path = os.path.join(log_dir, f"reward_net_state_dict_round_{r+1}.pth")
+            if r % save_interval == 0:
+                save_path = os.path.join(log_dir, f"reward_net_state_dict_round_{r}.pth")
                 torch.save(self._reward_net.state_dict(), save_path)
                 print(f"Saved reward net state dict at {save_path}")
 
