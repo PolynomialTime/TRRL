@@ -441,17 +441,18 @@ class BasicRewardNet(RewardNet):
         self.use_state = use_state
         if self.use_state:
             combined_size += preprocessing.get_flattened_obs_dim(observation_space)
-            print("combined_size1:", combined_size)
+            print("state_combined_size:", combined_size)
 
         self.use_action = use_action
         if self.use_action:
             # Disctrete spaces are calculated using its one-hot encoding. Example: dim = 2 for Space.Discrete(2)
             combined_size += preprocessing.get_flattened_obs_dim(action_space)
-            print("combined_size2:", combined_size)
+            print("state+action_combined_size:", combined_size)
 
         self.use_next_state = use_next_state
         if self.use_next_state:
             combined_size += preprocessing.get_flattened_obs_dim(observation_space)
+            print("state+action+next_combined_size:", combined_size)
 
         self.use_done = use_done
         if self.use_done:
