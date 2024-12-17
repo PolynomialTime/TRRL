@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--max_epoch", type=int, default=100, help="maximum epoch length")
     parser.add_argument("--max_grad_norm", type=float, default=0.5, help="max gradient norm for clip")
     parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for adam optimizer")
-    parser.add_argument("--avg_reward_diff_coef", type=float, default=0.1,
+    parser.add_argument("--avg_diff_coef", type=float, default=0.1,
                         help="Langrange multiplier for the average difference between the old and new reward function")
     parser.add_argument("--l2_norm_coef", type=float, default=0.1,
                         help="Langrange multiplier for the l2 norm of the difference between the old and new reward function")
@@ -34,18 +34,18 @@ def parse_args():
                         help="upper bound for the l2 norm of the difference between the old and new reward function")
 
     #adaptive coef adjustment paremeters
-    parser.add_argument("--t_kl", type=float, default=1000,
+    parser.add_argument("--target_kl", type=float, default=1000,
                         help="KL divergence threshold for dynamic adjustment of  Lagrange multiplier.")
 
     # experiment control parameters
-    parser.add_argument("--n_rounds", type=int, default=10, help="number of global rounds")
-    parser.add_argument("--n_policy_updates_per_round", type=int, default=300,
+    parser.add_argument("--n_rounds", type=int, default=1000, help="number of global rounds")
+    parser.add_argument("--n_policy_updates_per_round", type=int, default=10000,
                         help="number of policy udpates per global round")
-    parser.add_argument("--n_reward_updates_per_round", type=int, default=3,
+    parser.add_argument("--n_reward_updates_per_round", type=int, default=10,
                         help="number of reward udpates per global round")
-    parser.add_argument("--n_episodes_adv_fn_est", type=int, default=64,
+    parser.add_argument("--n_episodes_adv_fn_est", type=int, default=16,
                         help="number of episodes for advantage function estimation")
-    parser.add_argument("--n_timesteps_adv_fn_est", type=int, default=32,
+    parser.add_argument("--n_timesteps_adv_fn_est", type=int, default=128,
                         help="number of timesteps for advantage function estimation")
 
     # checkpointing

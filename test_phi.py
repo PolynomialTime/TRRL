@@ -60,6 +60,7 @@ if __name__ == '__main__':
     # make environment
     mp.set_start_method('spawn', force=True)
     arglist = arguments.parse_args()
+
     rng = np.random.default_rng(0)
 
     env = make_vec_env(
@@ -120,7 +121,7 @@ if __name__ == '__main__':
         reward_net=rwd_net,
         discount=arglist.discount,
         avg_diff_coef=arglist.avg_reward_diff_coef,
-        l2_norm_coef=arglist.avg_reward_diff_coef,
+        l2_norm_coef=arglist.l2_norm_coef,
         l2_norm_upper_bound=arglist.l2_norm_upper_bound,
         ent_coef=arglist.ent_coef,
         device=DEVICE,
@@ -128,7 +129,7 @@ if __name__ == '__main__':
         n_reward_updates_per_round=arglist.n_reward_updates_per_round,
         n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
         n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est,
-        t_kl=arglist.t_kl,
+        target_kl=arglist.target_kl,
         observation_space = observation_space,
         action_space = action_space
     )

@@ -59,7 +59,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger: Optional[logger.HierarchicalLogger] = None,
             reward_net: RewardNet,
             discount: np.float32,
-            t_kl:np.float32,
+            target_kl:np.float32,
             avg_diff_coef: np.float32,
             l2_norm_coef: np.float32,
             l2_norm_upper_bound: np.float32,
@@ -114,7 +114,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.avg_diff_coef = avg_diff_coef
         self.l2_norm_coef = l2_norm_coef
         self.l2_norm_upper_bound = l2_norm_upper_bound
-        self.t_kl = t_kl
+        self.target_kl = target_kl
         # self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
         self.venv = venv
         self.device = device
@@ -145,17 +145,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     def store_trajectory(self, trajectory):
         """存储轨迹，并将它与当前策略的迭代次数相关联"""
         if len(self.trajectory_buffer) >= self.MAX_BUFFER_SIZE:
-            self.trajectory_buffer.pop(0)  # 移除最早的轨迹
+            self.trajectory_buffer.pop(0)
         self.trajectory_buffer.append((trajectory, self.current_iteration))  # 存储轨迹和对应的策略迭代次数
 
     def sample_old_trajectory(self):
         """只从最近策略生成的轨迹中进行采样"""
-        recent_trajectories = [
-            traj for traj, iteration in self.trajectory_buffer
-            if iteration >= self.current_iteration - self.recent_policy_window
-        ]
+        recent_trajectories = [ traj for traj, iteration in self.trajectory_buffer if iteration >= self.current_iteration - self.recent_policy_window ]
         if len(recent_trajectories) == 0:
-            raise ValueError("没有足够的最近轨迹可供采样")
+            raise ValueError("There are not enough recent trajectories to sample")
         return random.choice(recent_trajectories)
 
     @property
@@ -175,7 +172,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         obs_th = torch.as_tensor(obs, device=self.device)
         acts_th = torch.as_tensor(acts, device=self.device)
 
-        # 确保模型的权重在同一设备上
         self._old_policy.policy.to(self.device)
         self._expert_policy.policy.to(self.device)
         # print(obs_th.shape)
@@ -284,16 +280,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         Returns:
             the estimated value of advantage function at `starting_state` and `starting_action`
         """
-        rng = np.random.default_rng(0)
-
-        # TODO 这里用的是不带新Reward的env?
-        # env = make_vec_env(
-        #     env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
-        #     n_envs=self.venv.num_envs,
-        #     rng=rng,
-        # )
-
-
 
         if isinstance(self.action_space, gym.spaces.Discrete):
             starting_a = starting_action.astype(int)
@@ -314,26 +300,12 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 tran = rollouts.generate_transitions(
                     self._old_policy,
                     self.venv,
-                    rng=rng,
+                    rng=np.random.default_rng(0),
                     n_timesteps=n_timesteps,
                     starting_state=starting_s,
                     starting_action=starting_a,
                     truncate=True,
                 )
-                # end_time = time.perf_counter()
-                # elapsed_time = end_time - start_time
-                #
-                # print(f"generate_transitions (s,a): {elapsed_time:.8f} ")
-
-                # tran = rollout.generate_transitions(
-                #     self._old_policy,
-                #     env,
-                #     rng=rng,
-                #     n_timesteps=n_timesteps,
-                #     #starting_state=starting_s,
-                #     #starting_action=starting_a,
-                #     truncate=True,
-                # )
                 self.store_trajectory(tran)  # Store the new trajectory in buffer
             else:
                 # Importance Sampling: Sample an old trajectory from the buffer
@@ -434,18 +406,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         Returns:
             A gym PPO policy optimised for the current reward network
         """
-        # rng = np.random.default_rng(0)
-        # venv = make_vec_env(
-        #     env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
-        #     n_envs=self.venv.num_envs,
-        #     parallel = True,
-        #     rng=rng,
-        # )
-
 
         # setup an env with the reward being the current reward network
 
-        # self.venv.reset()
         rwd_fn = RwdFromRwdNet(rwd_net=self._reward_net)
         venv_with_cur_rwd_net = RewardVecEnvWrapper(
             venv=self.venv,
@@ -458,22 +421,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             policy=MlpPolicy,
             env=venv_with_cur_rwd_net,
             batch_size=64,
-            ent_coef=self.ent_coef,
             learning_rate=0.0005,
             n_epochs=10,
-            n_steps=64,
             gamma=self.discount
         )
 
         new_policy.learn(self.n_policy_updates_per_round)
 
-        # venv_with_cur_rwd_net.close()
-        # venv.close()
-
-        # Store the new policy
         self._new_policy = new_policy
-
-        # 在策略训练完成后，更新策略迭代次数
         self.current_iteration += 1
 
         return new_policy
@@ -495,6 +450,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # initialise the optimiser for the reward net
         # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing GD.
         batch_iter = self._make_reward_train_batches()
+        print("batch_iter=",batch_iter)
 
         for batch in batch_iter:
 
@@ -526,54 +482,38 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 print("self._old_reward_net is None")
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
-                # TODO: 第一轮迭代，diff=0，因为old和new RewardNet存的相同
+                # TODO: in the first episode, diff=0 because the old reward equals the new one
                 reward_diff = self._reward_net(state_th, action_th, next_state_th,
                                                done_th) - self._old_reward_net.predict_th(obs, acts, next_obs,
                                                                                           dones).to(self.device)
 
-            # print("reward_diff:",reward_diff)
-
             # TODO: two penalties should be calculated over all state-action pairs
-            # 在所有的S-A上计算； S-A去重
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
+            temp_kl = self.expert_kl
+            print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff,"temp_kl=",temp_kl)
 
-            ####################################################################
-            #adaptive Lagrange multiplier
-            distance = self.expert_kl
-            t_kl= self.t_kl
-            print("\nThreshold is:", t_kl,"coef is:",self.avg_diff_coef)
-            if distance > self.t_kl * 1.5:
-                self.avg_diff_coef *= 1.2  # 增加 Lagrange 乘子系数
-            elif distance < self.t_kl / 1.5:
-                self.avg_diff_coef /= 1.2  # 减小 Lagrange 乘子系数
+            print("target_kl=", self.target_kl,",avg_diff_coef=:",self.avg_diff_coef)
+            if temp_kl > self.target_kl * 1.5:
+                self.avg_diff_coef = self.avg_diff_coef * 1.2
+            elif temp_kl < self.target_kl / 1.5:
+                self.avg_diff_coef = self.avg_diff_coef / 1.2
+            print("self.avg_diff_coef=",self.avg_diff_coef)
 
-            # Ensure avg_diff_coef is a tensor before applying clamp
             self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
-            self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-5, max=1e5)
+            self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
 
-            # 设定参考阈值与缩放因子（根据实际情况调整）
-            l2_norm_target_lower = 0.01     # 当l2_norm_reward_diff低于该值时，说明更新过于保守，可减少约束
-            l2_norm_target_upper = 1     # 当l2_norm_reward_diff高于该值时，说明更新过大，需要加强约束
-            scaling_factor_increase = 1.1   # 增大系数时的倍率
-            scaling_factor_decrease = 1.1   # 减小系数时的倍率
+            if l2_norm_reward_diff > 1:
+                self.l2_norm_coef = self.l2_norm_coef * 1.1
+            elif l2_norm_reward_diff < 0.01:
+                self.l2_norm_coef = self.l2_norm_coef / 1.1
+            print("self.l2_norm_coef=",self.l2_norm_coef)
 
-            if l2_norm_reward_diff > l2_norm_target_upper:
-                # 更新幅度过大，需要加强约束
-                self.l2_norm_coef *= scaling_factor_increase
-            elif l2_norm_reward_diff < l2_norm_target_lower:
-                # 更新幅度过小，可能过于保守，适度放宽约束
-                self.l2_norm_coef /= scaling_factor_decrease
-
-            # 限制 l2_norm_coef 的范围，防止出现过大或过小的情况
             self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
-            self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-6, max=1e3)
+            self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
-            # 打印或记录当前状态，便于调试和观察
-            print(f"Current L2 diff: {l2_norm_reward_diff.item():.4f}, adjusted l2_norm_coef: {self.l2_norm_coef.item():.6f}")
-
-            ####################################################################
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff + self.l2_norm_upper_bound
+
             print(self._global_step, "loss:", loss, "avg_advantages:", avg_advantages, "avg_reward_diff:",
                   avg_reward_diff, "l2_norm_reward_diff:", l2_norm_reward_diff)
 
@@ -588,7 +528,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             writer.add_scalar("Train/avg_reward_diff", avg_reward_diff.item(), self._global_step)
 
             end_batch = time.time()
-            print("batch time:", end_batch - start_batch)
+            print("batch_time=", end_batch - start_batch)
 
             self._global_step += 1
 
@@ -602,32 +542,33 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         """
         # TODO: Make the initial reward net oupput <= 1
         # Iteratively train a reward function and the induced policy.
-        global writer
-        # 获取当前时间并格式化
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # 创建带时间戳的日志目录，例如：logs/20231201_103000
         log_dir = f"logs/{current_time}"
 
+        global writer
         writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
 
         print("n_policy_updates_per_round:", self.n_policy_updates_per_round)
         print("n_reward_updates_per_round:", self.n_reward_updates_per_round)
 
-        # 设置保存模型的轮数间隔
         save_interval = 50
-
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
+            start_time = time.time()
 
             self._old_policy = self.train_new_policy_for_new_reward()
+            trian_ppo_time = time.time()
+            print("trian_ppo_time=",trian_ppo_time-start_time)
 
             # Determine whether to use Monte Carlo or Importance Sampling
             use_mc = (r % 200 == 0)
 
             # Update the reward network.
             for _ in range(self.n_reward_updates_per_round):
+                reward_time_start = time.time()
                 self.update_reward(use_mc=use_mc)
+                reward_time_end = time.time()
+                print("update_reward_time=",reward_time_end-reward_time_start)
 
             self._old_reward_net = copy.deepcopy(self._reward_net)
             distance = self.expert_kl
