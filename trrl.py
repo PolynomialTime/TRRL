@@ -420,6 +420,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         venv = make_vec_env(
             env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
             n_envs=self.venv.num_envs,
+            parallel = True,
             rng=rng,
         )
 
@@ -578,7 +579,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             callback: A function called at the end of every round which takes in a
                 single argument, the round number.
         """
-        # TODO: Make the initial reward net oupput <= 1 
+        # TODO: Make the initial reward net oupput <= 1
         # Iteratively train a reward function and the induced policy.
         global writer
         # 获取当前时间并格式化
@@ -588,7 +589,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         log_dir = f"logs/{current_time}"
 
         writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
-        #writer = tb.SummaryWriter('./logs/', flush_secs=1)
 
         print("n_policy_updates_per_round:", self.n_policy_updates_per_round)
         print("n_reward_updates_per_round:", self.n_reward_updates_per_round)
@@ -615,8 +615,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             writer.add_scalar("Valid/distance", distance, r)
             writer.add_scalar("Valid/reward", reward, r)
 
-            self.logger.record("round " + str(r),
-                               'Distance: ' + str(distance) + '. Reward: ' + str(self.evaluate_policy))
+            self.logger.record("round " + str(r),'Distance: ' + str(distance) + '. Reward: ' + str(reward))
             self.logger.dump(step=10)
 
             # 每隔 save_interval 轮保存一次模型参数
