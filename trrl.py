@@ -44,22 +44,6 @@ def timeit_decorator(func):
 
     return wrapper
 
-
-class CustomResetEnv(gym.Env):
-    def __init__(self, env):
-        self.env = env
-
-    def reset(self, custom_state=None):
-        obs = self.env.reset()
-        if custom_state is not None:
-            self.env.state = custom_state  # 设置自定义状态
-            obs = self.env._get_obs()  # 调用环境的观测生成函数
-        return obs
-
-    def step(self, action):
-        return self.env.step(action)
-
-
 class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     """Trust Region Reward Learning (TRRL).
 
@@ -586,7 +570,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             self._global_step += 1
 
-    # @timeit_decorator
+    @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:

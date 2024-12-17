@@ -71,14 +71,16 @@ def sample_expert_transitions(expert: policies):
 
 
 #expert = train_expert()  # uncomment to train your own expert
+# transitions = sample_expert_transitions(expert)
+
 expert = PPO.load(f"./expert_data/{arglist.env_name}")
+transitions = torch.load(f"./imitation/imitation_expert/transitions_{arglist.env_name}.npy")
+rollouts = torch.load(f"./imitation/imitation_expert/rollouts_{arglist.env_name}.npy")
 
 mean_reward, std_reward = evaluate_policy(model=expert, env=env)
-print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
 
-transitions = sample_expert_transitions(expert)
+print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
 print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
-# print("transitions:",transitions)
 
 obs = transitions.obs
 actions = transitions.acts
@@ -120,4 +122,4 @@ trrl_trainer = TRRL(
 )
 print("Starting reward learning.")
 
-trrl_trainer.train(n_rounds=arglist.n_runs)
+trrl_trainer.train(n_rounds=arglist.n_rounds)
