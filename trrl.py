@@ -219,7 +219,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     def est_expert_demo_state_action_density(self, demonstration: base.AnyTransitions) -> np.ndarray:
         pass
 
-    #############################################################################################
     def compute_is_weights(self, old_policy, new_policy, observations, actions):
         """
         Compute the importance sampling (IS) weights.
@@ -236,31 +235,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         observations = torch.as_tensor(observations, device=self.device)
         actions = torch.as_tensor(actions, device=self.device)
 
-        # 确保模型的权重在同一设备上
         self._old_policy.policy.to(self.device)
         self._expert_policy.policy.to(self.device)
-
-        ############################test
-
-        # 打印形状
-        # print("Observations shape:", observations.shape)
-        # print("Actions shape:", actions.shape)
-
-        # observations = observations.to(self.device)
-        # actions = actions.to(self.device)
-        # old_prob = old_policy.policy.get_distribution(observations).log_prob(actions)
-        # new_prob = new_policy.policy.get_distribution(observations).log_prob(actions)
 
         old_prob = old_policy.policy.evaluate_actions(observations, actions)[1]
         new_prob = new_policy.policy.evaluate_actions(observations, actions)[1]
 
-        # print("Old policy output shape:", old_prob.shape)
-        # print("New policy output shape:", new_prob.shape)
-
         weights = torch.exp(new_prob - old_prob)
         return weights
-
-    ########################################################################
 
     # @timeit_decorator
     def est_adv_fn_old_policy_cur_reward(self, starting_state: np.ndarray, starting_action: np.ndarray,
@@ -295,8 +277,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         for ep_idx in range(n_episodes):
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
-                # start_time = time.perf_counter()
-
+                start_time = time.perf_counter()
                 tran = rollouts.generate_transitions(
                     self._old_policy,
                     self.venv,
@@ -306,77 +287,46 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                     starting_action=starting_a,
                     truncate=True,
                 )
+                end_time = time.perf_counter()
+                print("sampling (s,a) time=",end_time - start_time)
                 self.store_trajectory(tran)  # Store the new trajectory in buffer
             else:
                 # Importance Sampling: Sample an old trajectory from the buffer
+                print("importance sampling (s,a)")
                 tran = self.sample_old_trajectory()
-                # After applying IS, treat the new weighted trajectory as a new one and store it
-                self.store_trajectory(tran)  # 将经过 IS 处理后的轨迹重新加入池子
-            state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
-                                                                                      tran.next_obs, tran.dones)
+                # self.store_trajectory(tran)
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
             discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
                                   torch.arange(0, n_timesteps, device=self.device))
-
+            print("rwds=",rwds)
             if use_mc:
-                # Use Monte Carlo estimation
                 q += torch.dot(rwds, discounts)
             else:
-                # Use Importance Sampling estimation
                 weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
+                print("weights=",weights)
+                # TODO: mean(weights * rwds) ??
                 q += torch.dot(weights * rwds, discounts)
 
         # The v calculation remains unchanged
         v = torch.zeros(1).to(self.device)
-        '''
-        if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
-            # if the action space is discrete, then V(s,a) can be calculated as the expectation of Q(s,a) over all a's 
-            state_th = util.safe_to_tensor(starting_state).to(self.device)
-            state_th = cast(
-                torch.Tensor,
-                preprocessing.preprocess_obs(
-                    state_th,
-                    self.venv.unwrapped.envs[0].unwrapped.observation_space,
-                    True,
-                ),
-            )
-            with torch.no_grad():
-                self._old_policy.policy.forward(obs=torch.as_tensor(state_th, device=self.device))
-                PPO.policy.for
-            pass
-            # if the action space is fully or partially continuous, then V(s,a) is approximated by Monte Carlo simulation.
-        '''
-        j = 0
         for ep_idx in range(n_episodes):
-
-            # start_time = time.perf_counter()
+            # TODO: add Importance sampling
+            start_time = time.perf_counter()
             tran = rollouts.generate_transitions(
                 self._old_policy,
                 self.venv,
                 n_timesteps=n_timesteps,
-                rng=rng,
+                rng=np.random.default_rng(0),
                 starting_state=starting_s,
                 starting_action=None,
                 truncate=True,
             )
-            # end_time = time.perf_counter()
-            # elapsed_time = end_time - start_time
-            #
-            # print(f"generate_transitions (s): {elapsed_time:.8f} ")
+            end_time = time.perf_counter()
+            print("sampling (s) time=", end_time - start_time)
 
-            #
-            # tran = rollout.generate_transitions(
-            #     self._old_policy,
-            #     env,
-            #     n_timesteps=n_timesteps,
-            #     rng=rng,
-            #     #starting_state=starting_s,
-            #     #starting_action=None,
-            #     truncate=True,
-            # )
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
 
@@ -512,7 +462,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
-            loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff + self.l2_norm_upper_bound
+            loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
             print(self._global_step, "loss:", loss, "avg_advantages:", avg_advantages, "avg_reward_diff:",
                   avg_reward_diff, "l2_norm_reward_diff:", l2_norm_reward_diff)
@@ -561,7 +511,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             print("trian_ppo_time=",trian_ppo_time-start_time)
 
             # Determine whether to use Monte Carlo or Importance Sampling
-            use_mc = (r % 200 == 0)
+            use_mc = (r % 20 == 0)
 
             # Update the reward network.
             for _ in range(self.n_reward_updates_per_round):
@@ -574,8 +524,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             distance = self.expert_kl
             reward = self.evaluate_policy
 
-            writer.add_scalar("Valid/distance", distance, r)
-            writer.add_scalar("Valid/reward", reward, r)
+            writer.add_scalar("Result/distance", distance, r)
+            writer.add_scalar("Result/reward", reward, r)
 
             self.logger.record("round " + str(r),'Distance: ' + str(distance) + '. Reward: ' + str(reward))
             self.logger.dump(step=10)
