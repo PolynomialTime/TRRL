@@ -423,9 +423,9 @@ def generate_trajectories(
 
     if starting_state is not None:
         # Fix Pendulum bug:ValueError: too many values to unpack (expected 2)
-        if arglist.env_name not in ("Acrobot-v1","Pendulum-v1") :
-            for e in venv.unwrapped.envs:
-                e.unwrapped.state = starting_state
+        # if arglist.env_name not in ("Acrobot-v1","Pendulum-v1") :
+        #     for e in venv.unwrapped.envs:
+        #         e.unwrapped.state = starting_state
 
         obs = np.repeat([starting_state], repeats=[venv.num_envs], axis=0)
 

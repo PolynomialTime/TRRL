@@ -41,7 +41,6 @@ def timeit_decorator(func):
         temp_str = str(func.__code__)
         # print(f"Function {temp_str[-30:]} {func.__name__}  executed in {end_time - start_time} seconds")
         return result
-
     return wrapper
 
 class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
@@ -73,6 +72,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             n_reward_updates_per_round=10,
             n_episodes_adv_fn_est=32,
             n_timesteps_adv_fn_est=64,
+            observation_space = None,
+            action_space = None,
             **kwargs,
     ):
         """
@@ -104,6 +105,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :raises: ValueError: if `dqn_kwargs` includes a key
                 `replay_buffer_class` or `replay_buffer_kwargs`.
         """
+        self.action_space = action_space
+        self.observation_space = observation_space
         self._rwd_opt_cls = rwd_opt_cls
         self._old_policy = None
         self._old_reward_net = None
@@ -123,7 +126,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger=custom_logger,
             allow_variable_horizon=allow_variable_horizon,
         )
-        self.venv = venv
         self._new_policy = None  # Initialize _new_policy
         self._reward_net = reward_net.to(device)
         self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters(), lr=0.0005)
@@ -157,7 +159,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         return random.choice(recent_trajectories)
 
     @property
-    @timeit_decorator
+    #@timeit_decorator
     def expert_kl(self) -> float:
         """KL divergence between the expert and the current policy.
         A Stablebaseline3-format expert policy is required.
@@ -203,7 +205,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 1. KL divergence between the expert and the current policy;
                 2. Evaluations of the current policy.
         """
-        # TODO 
+        # TODO
         pass
 
     def set_demonstrations(self, demonstrations) -> None:
@@ -211,7 +213,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
     def reset(self, reward_net: RewardNet = None):
         """Reset the reward network and the iteration counter.
-        
+
         Args:
             reward_net: The reward network to set as.
         """
@@ -285,17 +287,19 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         rng = np.random.default_rng(0)
 
         # TODO 这里用的是不带新Reward的env?
-        env = make_vec_env(
-            env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
-            n_envs=self.venv.num_envs,
-            rng=rng,
-        )
+        # env = make_vec_env(
+        #     env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
+        #     n_envs=self.venv.num_envs,
+        #     rng=rng,
+        # )
 
-        if isinstance(self.venv.unwrapped.envs[0].unwrapped.action_space, gym.spaces.Discrete):
+
+
+        if isinstance(self.action_space, gym.spaces.Discrete):
             starting_a = starting_action.astype(int)
         else:
             starting_a = starting_action
-        if isinstance(self.venv.unwrapped.envs[0].unwrapped.observation_space, gym.spaces.Discrete):
+        if isinstance(self.observation_space, gym.spaces.Discrete):
             starting_s = starting_state.astype(int)
         else:
             starting_s = starting_state
@@ -305,15 +309,22 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         for ep_idx in range(n_episodes):
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
+                # start_time = time.perf_counter()
+
                 tran = rollouts.generate_transitions(
                     self._old_policy,
-                    env,
+                    self.venv,
                     rng=rng,
                     n_timesteps=n_timesteps,
                     starting_state=starting_s,
                     starting_action=starting_a,
                     truncate=True,
                 )
+                # end_time = time.perf_counter()
+                # elapsed_time = end_time - start_time
+                #
+                # print(f"generate_transitions (s,a): {elapsed_time:.8f} ")
+
                 # tran = rollout.generate_transitions(
                 #     self._old_policy,
                 #     env,
@@ -368,15 +379,22 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         '''
         j = 0
         for ep_idx in range(n_episodes):
+
+            # start_time = time.perf_counter()
             tran = rollouts.generate_transitions(
                 self._old_policy,
-                env,
+                self.venv,
                 n_timesteps=n_timesteps,
                 rng=rng,
                 starting_state=starting_s,
                 starting_action=None,
                 truncate=True,
             )
+            # end_time = time.perf_counter()
+            # elapsed_time = end_time - start_time
+            #
+            # print(f"generate_transitions (s): {elapsed_time:.8f} ")
+
             #
             # tran = rollout.generate_transitions(
             #     self._old_policy,
@@ -406,28 +424,31 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
                 v += torch.dot(weights * rwds, discounts)
 
-        env.close()
+        # env.close()
         return (q - v) / n_episodes
 
-    @timeit_decorator
+    #@timeit_decorator
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
         """Update the policy to maximise the rewards under the new reward function. The PPO algorithm will be used.
 
         Returns:
             A gym PPO policy optimised for the current reward network
         """
-        rng = np.random.default_rng(0)
-        venv = make_vec_env(
-            env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
-            n_envs=self.venv.num_envs,
-            parallel = True,
-            rng=rng,
-        )
+        # rng = np.random.default_rng(0)
+        # venv = make_vec_env(
+        #     env_name=self.venv.unwrapped.envs[0].unwrapped.spec.id,
+        #     n_envs=self.venv.num_envs,
+        #     parallel = True,
+        #     rng=rng,
+        # )
+
 
         # setup an env with the reward being the current reward network
+
+        # self.venv.reset()
         rwd_fn = RwdFromRwdNet(rwd_net=self._reward_net)
         venv_with_cur_rwd_net = RewardVecEnvWrapper(
-            venv=venv,
+            venv=self.venv,
             reward_fn=rwd_fn
         )
 
@@ -446,8 +467,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         new_policy.learn(self.n_policy_updates_per_round)
 
-        venv_with_cur_rwd_net.close()
-        venv.close()
+        # venv_with_cur_rwd_net.close()
+        # venv.close()
 
         # Store the new policy
         self._new_policy = new_policy
@@ -457,13 +478,13 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         return new_policy
 
-    @timeit_decorator
+    #@timeit_decorator
     def update_reward(self, use_mc=False):
-        """Perform a single reward update by conducting a complete pass over the demonstrations, 
-        optionally using provided samples. The loss is adapted from the constrained optimisation 
-        problem of the trust region reward learning by Lagrangian multipliers (moving the constraints 
+        """Perform a single reward update by conducting a complete pass over the demonstrations,
+        optionally using provided samples. The loss is adapted from the constrained optimisation
+        problem of the trust region reward learning by Lagrangian multipliers (moving the constraints
         into the objective function).
-        
+
         Args:
             use_mc: Boolean flag to determine whether to use Monte Carlo for advantage function estimation.
             cur_round: The number of current round of reward-policy iteration
@@ -571,7 +592,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             self._global_step += 1
 
-    @timeit_decorator
+    #@timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
@@ -594,7 +615,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         print("n_reward_updates_per_round:", self.n_reward_updates_per_round)
 
         # 设置保存模型的轮数间隔
-        save_interval = 50  
+        save_interval = 50
 
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.

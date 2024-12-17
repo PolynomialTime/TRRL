@@ -1,6 +1,7 @@
 """This is the runner of using TRRL to infer the reward functions and the optimal policy
 
 """
+import multiprocessing as mp
 import arguments
 import torch
 import numpy as np
@@ -50,15 +51,15 @@ def sample_expert_transitions(expert: policies):
         env,
         rollout.make_sample_until(min_timesteps=None, min_episodes=512),
         rng=rng,
-        #starting_state=None,  # np.array([0.1, 0.1, 0.1, 0.1]),
-        #starting_action=None,  # np.array([[1,], [1,],], dtype=np.integer)
     )
 
     return rollout.flatten_trajectories(trajs)
 
 if __name__ == '__main__':
-    arglist = arguments.parse_args()
 
+    # make environment
+    mp.set_start_method('spawn', force=True)
+    arglist = arguments.parse_args()
     rng = np.random.default_rng(0)
 
     env = make_vec_env(
@@ -69,20 +70,18 @@ if __name__ == '__main__':
         max_episode_steps = 128,
     )
 
-    print(env.reset())
-    print(env.reset())
-
     print(arglist.env_name)
 
-    # expert = train_expert()  # uncomment to train your own expert
-    # transitions = sample_expert_transitions(expert)
+    print(type(env))
 
+    # load expert data
     expert = PPO.load(f"./expert_data/{arglist.env_name}")
     transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
-    rollouts = torch.load(f"./expert_data/rollouts_{arglist.env_name}.npy")
+    #rollouts = torch.load(f"./expert_data/rollouts_{arglist.env_name}.npy")
+    #expert = train_expert()  # uncomment to train your own expert
+    #transitions = sample_expert_transitions(expert)
 
     mean_reward, std_reward = evaluate_policy(model=expert, env=env)
-
     print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
     print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
 
@@ -92,9 +91,15 @@ if __name__ == '__main__':
     next_obs = transitions.next_obs
     dones = transitions.dones
 
-    rwd_net = BasicRewardNet(env.unwrapped.envs[0].unwrapped.observation_space,
-                             env.unwrapped.envs[0].unwrapped.action_space)
+    # initiate reward_net
+    env_spec = gym.spec(arglist.env_name)
+    env_temp = env_spec.make()
+    observation_space = env_temp.observation_space
+    action_space = env_temp.action_space
+    rwd_net = BasicRewardNet(observation_space,action_space)
+    print("observation_space",observation_space,",action_space",action_space)
 
+    # initiate device
     if arglist.device == 'cpu':
         DEVICE = torch.device('cpu')
     elif arglist.device == 'gpu' and torch.cuda.is_available():
@@ -106,7 +111,7 @@ if __name__ == '__main__':
         DEVICE = torch.device('cpu')
         print("The intended device is not supported, run on CPU instead.")
 
-    # phi_test
+    # mian func
     trrl_trainer = TRRL(
         venv=env,
         expert_policy=expert,
@@ -123,7 +128,9 @@ if __name__ == '__main__':
         n_reward_updates_per_round=arglist.n_reward_updates_per_round,
         n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
         n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est,
-        t_kl=arglist.t_kl
+        t_kl=arglist.t_kl,
+        observation_space = observation_space,
+        action_space = action_space
     )
     print("Starting reward learning.")
 
