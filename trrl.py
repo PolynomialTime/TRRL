@@ -74,6 +74,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             n_timesteps_adv_fn_est=64,
             observation_space = None,
             action_space = None,
+            arglist = None,
             **kwargs,
     ):
         """
@@ -105,6 +106,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :raises: ValueError: if `dqn_kwargs` includes a key
                 `replay_buffer_class` or `replay_buffer_kwargs`.
         """
+        self.arglist = arglist
         self.action_space = action_space
         self.observation_space = observation_space
         self._rwd_opt_cls = rwd_opt_cls
@@ -275,7 +277,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         q = torch.zeros(1).to(self.device)
         discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
                               torch.arange(0, n_timesteps, device=self.device))
-        for ep_idx in range(n_episodes):
+
+        print("n_episodes / self.arglist.n_env=",n_episodes / self.arglist.n_env)
+
+        for ep_idx in range(n_episodes / self.arglist.n_env):
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
                 start_time = time.perf_counter()
@@ -311,7 +316,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         # The v calculation remains unchanged
         v = torch.zeros(1).to(self.device)
-        for ep_idx in range(n_episodes):
+        for ep_idx in range(n_episodes  / self.arglist.n_env):
             # TODO: add Importance sampling
             start_time = time.perf_counter()
             tran = rollouts.generate_transitions(
