@@ -278,9 +278,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
                               torch.arange(0, n_timesteps, device=self.device))
 
-        print("n_episodes / self.arglist.n_env=",n_episodes / self.arglist.n_env)
+        sample_num = int(n_episodes / self.arglist.n_env)
+        print("n_episodes / self.arglist.n_env=",sample_num)
 
-        for ep_idx in range(n_episodes / self.arglist.n_env):
+        for ep_idx in range( sample_num):
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
                 start_time = time.perf_counter()
@@ -316,7 +317,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         # The v calculation remains unchanged
         v = torch.zeros(1).to(self.device)
-        for ep_idx in range(n_episodes  / self.arglist.n_env):
+        for ep_idx in range( sample_num):
             # TODO: add Importance sampling
             start_time = time.perf_counter()
             tran = rollouts.generate_transitions(
