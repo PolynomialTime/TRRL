@@ -86,6 +86,9 @@ if __name__ == '__main__':
     print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
     print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
 
+    # @TODO truncate the length of expert transition
+    transitions = transitions[:16]
+
     obs = transitions.obs
     actions = transitions.acts
     infos = transitions.infos
@@ -120,7 +123,7 @@ if __name__ == '__main__':
         demo_batch_size=arglist.demo_batch_size,
         reward_net=rwd_net,
         discount=arglist.discount,
-        avg_diff_coef=arglist.avg_reward_diff_coef,
+        avg_diff_coef=arglist.avg_diff_coef,
         l2_norm_coef=arglist.l2_norm_coef,
         l2_norm_upper_bound=arglist.l2_norm_upper_bound,
         ent_coef=arglist.ent_coef,
@@ -131,7 +134,8 @@ if __name__ == '__main__':
         n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est,
         target_kl=arglist.target_kl,
         observation_space = observation_space,
-        action_space = action_space
+        action_space = action_space,
+        arglist = arglist
     )
     print("Starting reward learning.")
 
