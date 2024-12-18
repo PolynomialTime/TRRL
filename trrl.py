@@ -176,8 +176,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         self._old_policy.policy.to(self.device)
         self._expert_policy.policy.to(self.device)
-        # print(obs_th.shape)
-        # print(acts_th.shape)
 
         input_values, input_log_prob, input_entropy = self._old_policy.policy.evaluate_actions(obs_th, acts_th)
         target_values, target_log_prob, target_entropy = self._expert_policy.policy.evaluate_actions(obs_th, acts_th)
@@ -281,12 +279,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         sample_num = int(n_episodes / self.arglist.n_env)
         if sample_num == 0 :
             sample_num = 1
-        print("n_episodes / self.arglist.n_env=",sample_num)
 
         for ep_idx in range( sample_num):
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
-                start_time = time.perf_counter()
+                # start_time = time.perf_counter()
                 tran = rollouts.generate_transitions(
                     self._old_policy,
                     self.venv,
@@ -296,8 +293,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                     starting_action=starting_a,
                     truncate=True,
                 )
-                end_time = time.perf_counter()
-                print("sampling (s,a) time=",end_time - start_time)
+                # end_time = time.perf_counter()
+                # print("sampling (s,a) time=",end_time - start_time)
                 #self.store_trajectory(tran)  # Store the new trajectory in buffer
             else:
                 # Importance Sampling: Sample an old trajectory from the buffer
@@ -321,7 +318,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         v = torch.zeros(1).to(self.device)
         for ep_idx in range( sample_num):
             # TODO: add Importance sampling
-            start_time = time.perf_counter()
+            # start_time = time.perf_counter()
             tran = rollouts.generate_transitions(
                 self._old_policy,
                 self.venv,
@@ -331,8 +328,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 starting_action=None,
                 truncate=True,
             )
-            end_time = time.perf_counter()
-            print("sampling (s) time=", end_time - start_time)
+            # end_time = time.perf_counter()
+            # print("sampling (s) time=", end_time - start_time)
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
@@ -419,7 +416,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                                                                           n_timesteps=self.n_timesteps_adv_fn_est,
                                                                           n_episodes=self.n_episodes_adv_fn_est,
                                                                           use_mc=use_mc)
-                print("cumul_advantages=",cumul_advantages)
 
             avg_advantages = cumul_advantages / obs.shape[0]
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
@@ -438,34 +434,29 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # TODO: two penalties should be calculated over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
-            temp_kl = self.expert_kl
-            print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff,"temp_kl=",temp_kl)
-
-            print("target_kl=", self.target_kl,",avg_diff_coef=:",self.avg_diff_coef)
-            if temp_kl > self.target_kl * 1.5:
-                self.avg_diff_coef = self.avg_diff_coef * 1.2
-            elif temp_kl < self.target_kl / 1.5:
-                self.avg_diff_coef = self.avg_diff_coef / 1.2
+            #temp_kl = self.expert_kl
+            # print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff,"temp_kl=",temp_kl)
+            #
+            # print("target_kl=", self.target_kl,",avg_diff_coef=:",self.avg_diff_coef)
+            # if temp_kl > self.target_kl * 1.5:
+            #     self.avg_diff_coef = self.avg_diff_coef * 1.2
+            # elif temp_kl < self.target_kl / 1.5:
+            #     self.avg_diff_coef = self.avg_diff_coef / 1.2
 
             self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
             self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
 
-            if l2_norm_reward_diff > 1:
-                self.l2_norm_coef = self.l2_norm_coef * 1.1
-            elif l2_norm_reward_diff < 0.01:
-                self.l2_norm_coef = self.l2_norm_coef / 1.1
+            # if l2_norm_reward_diff > 1:
+            #     self.l2_norm_coef = self.l2_norm_coef * 1.1
+            # elif l2_norm_reward_diff < 0.01:
+            #     self.l2_norm_coef = self.l2_norm_coef / 1.1
 
             self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
-            print(self._global_step, "loss:", loss,
-                  "avg_advantages:", avg_advantages,
-                  "self.avg_diff_coef:", self.avg_diff_coef,
-                  "avg_reward_diff:",avg_reward_diff,
-                  "self.l2_norm_coef:", self.l2_norm_coef,
-                  "l2_norm_reward_diff:", l2_norm_reward_diff)
+            print(self._global_step, "loss:", loss,"avg_advantages:", avg_advantages,"self.avg_diff_coef:", self.avg_diff_coef,"avg_reward_diff:",avg_reward_diff,"self.l2_norm_coef:", self.l2_norm_coef,"l2_norm_reward_diff:", l2_norm_reward_diff)
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
