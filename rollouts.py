@@ -18,6 +18,7 @@ from typing import (
 )
 import arguments
 arglist = arguments.parse_args()
+import time
 
 import numpy as np
 from gymnasium import spaces
@@ -429,6 +430,10 @@ def generate_trajectories(
 
         obs = np.repeat([starting_state], repeats=[venv.num_envs], axis=0)
 
+    init_acts = None
+    if starting_action is not None:
+        init_acts = np.repeat([starting_action], repeats=[venv.num_envs], axis=0)
+
     assert isinstance(
         obs,
         (np.ndarray, dict),
@@ -453,11 +458,17 @@ def generate_trajectories(
     active = np.ones(venv.num_envs, dtype=bool)
     state = None
     dones = np.zeros(venv.num_envs, dtype=bool)
+
+    flag = True
     while np.any(active):
         # policy gets unwrapped observations (eg as dict, not dictobs)
 
-        if starting_action is not None:
-            acts = np.repeat([starting_action], repeats=[venv.num_envs], axis=0)
+        # acts, state = get_actions(obs, state, dones)
+        # obs, rews, dones, infos = venv.step(acts)
+        #
+        if flag == True and init_acts is not None:
+            acts = init_acts
+            flag = False
         else:
             acts, state = get_actions(obs, state, dones)
 
