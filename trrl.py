@@ -398,7 +398,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         for batch in batch_iter:
 
-            start_batch = time.time()
+            # start_batch = time.time()
             # estimate the advantage function
             obs = batch["state"]
             acts = batch["action"]
@@ -468,8 +468,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             writer.add_scalar("Train/avg_advantages", avg_advantages.item(), self._global_step)
             writer.add_scalar("Train/avg_reward_diff", avg_reward_diff.item(), self._global_step)
 
-            end_batch = time.time()
-            print("batch_time=", end_batch - start_batch)
+            # end_batch = time.time()
+            # print("batch_time=", end_batch - start_batch)
 
             self._global_step += 1
 
