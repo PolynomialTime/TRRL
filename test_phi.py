@@ -87,7 +87,7 @@ if __name__ == '__main__':
     print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
 
     # @TODO truncate the length of expert transition
-    transitions = transitions[:16]
+    transitions = transitions[:arglist.transition_truncate_len]
 
     obs = transitions.obs
     actions = transitions.acts
