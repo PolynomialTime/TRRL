@@ -45,7 +45,7 @@ def parse_args():
                         help="number of reward udpates per global round")
     parser.add_argument("--n_episodes_adv_fn_est", type=int, default=128,
                         help="number of episodes for advantage function estimation")
-    parser.add_argument("--n_timesteps_adv_fn_est", type=int, default=32,
+    parser.add_argument("--n_timesteps_adv_fn_est", type=int, default=64,
                         help="number of timesteps for advantage function estimation")
 
     # checkpointing

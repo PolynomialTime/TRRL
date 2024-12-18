@@ -279,6 +279,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                               torch.arange(0, n_timesteps, device=self.device))
 
         sample_num = int(n_episodes / self.arglist.n_env)
+        if sample_num == 0 :
+            sample_num = 1
         print("n_episodes / self.arglist.n_env=",sample_num)
 
         for ep_idx in range( sample_num):
