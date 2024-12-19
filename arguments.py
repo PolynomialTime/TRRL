@@ -14,9 +14,8 @@ def parse_args():
     parser.add_argument("--device", type=str, default='cpu', help="torch device")
 
     # environment
-    # parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
-    # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3
-    parser.add_argument("--env_name", type=str, default="Ant-v4", help="the environment")
+    # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3, FrozenLake-v1, CartPole-v1，MountainCar-v0
+    parser.add_argument("--env_name", type=str, default="MountainCar-v0", help="the environment")
     parser.add_argument("--n_env", type=int, default=8, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
@@ -61,5 +60,8 @@ def parse_args():
                         help="directory in which training state and model are loaded"),
     parser.add_argument("--save_results_dir", type=str, default="./output/",
                         help="directory which results are output to")
+
+    parser.add_argument("--transition_truncate_len", type=int, default=1024,
+                        help="truncate transitions")
 
     return parser.parse_args()

@@ -37,7 +37,7 @@ def train_expert():
         learning_rate=0.0001,
         gamma=0.99,
         n_epochs=20,
-        n_steps=64,
+        n_steps=128
     )
     expert.learn(100_000)  # Note: change this to 100_000 to train a decent expert.
     expert.save(f"./expert_data/{arglist.env_name}")
@@ -52,8 +52,12 @@ def sample_expert_transitions(expert: policies):
         rollout.make_sample_until(min_timesteps=None, min_episodes=512),
         rng=rng,
     )
+    transitions = rollout.flatten_trajectories(trajs)
 
-    return rollout.flatten_trajectories(trajs)
+    torch.save(transitions,f"./expert_data/transitions_{arglist.env_name}.npy")
+    # torch.save(rollouts,f"./imitation/imitation_expert/rollouts_{env_name}.npy")
+
+    return transitions
 
 if __name__ == '__main__':
 
@@ -76,18 +80,20 @@ if __name__ == '__main__':
     print(type(env))
 
     # load expert data
-    expert = PPO.load(f"./expert_data/{arglist.env_name}")
-    transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
-    #rollouts = torch.load(f"./expert_data/rollouts_{arglist.env_name}.npy")
-    #expert = train_expert()  # uncomment to train your own expert
-    #transitions = sample_expert_transitions(expert)
+
+    # expert = PPO.load(f"./expert_data/{arglist.env_name}")
+    # transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
+
+    expert = train_expert()  # uncomment to train your own expert
+    transitions = sample_expert_transitions(expert)
 
     mean_reward, std_reward = evaluate_policy(model=expert, env=env)
     print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
     print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
 
     # @TODO truncate the length of expert transition
-    transitions = transitions[:16]
+    transitions = transitions[:arglist.transition_truncate_len]
+    print(transitions)
 
     obs = transitions.obs
     actions = transitions.acts
