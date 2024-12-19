@@ -446,16 +446,16 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # elif temp_kl < self.target_kl / 1.5:
             #     self.avg_diff_coef = self.avg_diff_coef / 1.2
 
-            self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
-            self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
+            # self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
+            # self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
 
             # if l2_norm_reward_diff > 1:
             #     self.l2_norm_coef = self.l2_norm_coef * 1.1
             # elif l2_norm_reward_diff < 0.01:
             #     self.l2_norm_coef = self.l2_norm_coef / 1.1
 
-            self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
-            self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
+            # self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
+            # self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
