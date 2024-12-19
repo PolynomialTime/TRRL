@@ -400,6 +400,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         loss = torch.zeros(1).to(self.device)
         avg_advantages = None
         avg_reward_diff = None
+        l2_norm_reward_diff = None
 
         batch_iter = self._make_reward_train_batches()
 
@@ -460,7 +461,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
             print("Batch:",self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:", round(avg_advantages.item(), 5), " self.avg_diff_coef:",
-                  round(self.avg_diff_coef.item(), 5), " avg_reward_diff:", round(avg_reward_diff.item(), 5), " self.l2_norm_coef:", round(self.l2_norm_coef.item(), 5),
+                  round(self.avg_diff_coef, 5), " avg_reward_diff:", round(avg_reward_diff.item(), 5), " self.l2_norm_coef:", round(self.l2_norm_coef, 5),
                   " l2_norm_reward_diff:", round(l2_norm_reward_diff.item(), 5))
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
@@ -472,6 +473,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             writer.add_scalar("Batch/loss", loss.item(), self._global_step)
             writer.add_scalar("Batch/avg_advantages", avg_advantages.item(), self._global_step)
             writer.add_scalar("Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+            writer.add_scalar("Batch/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
 
             # end_batch = time.time()
             # print("batch_time=", end_batch - start_batch)
@@ -481,6 +483,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         writer.add_scalar("Update_Reward/loss", loss.item(), self._global_step)
         writer.add_scalar("Update_Reward/avg_advantages", avg_advantages.item(), self._global_step)
         writer.add_scalar("Update_Reward/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+        writer.add_scalar("Update_Reward/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
 
     # @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
