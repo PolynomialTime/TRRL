@@ -447,6 +447,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff)
 
             # adaptive coef adjustment paremeters
+                # if avg_diff_coef (+) too high, reduce its coef
             if self.avg_diff_coef > self.avg_diff_coef * 1.5:
                 self.avg_diff_coef = self.avg_diff_coef / 2
             elif self.avg_diff_coef < self.avg_diff_coef / 1.5:
@@ -455,6 +456,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
             self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
 
+                # if l2_norm_reward_diff (-) too high, increase its coef
             if l2_norm_reward_diff > self.target_reward_l2_norm:
                 self.l2_norm_coef = self.l2_norm_coef * 2
             elif l2_norm_reward_diff < self.target_reward_l2_norm:
