@@ -41,7 +41,9 @@ def timeit_decorator(func):
         temp_str = str(func.__code__)
         # print(f"Function {temp_str[-30:]} {func.__name__}  executed in {end_time - start_time} seconds")
         return result
+
     return wrapper
+
 
 class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
     """Trust Region Reward Learning (TRRL).
@@ -59,7 +61,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger: Optional[logger.HierarchicalLogger] = None,
             reward_net: RewardNet,
             discount: np.float32,
-            target_kl:np.float32,
+            target_kl: np.float32,
             avg_diff_coef: np.float32,
             l2_norm_coef: np.float32,
             l2_norm_upper_bound: np.float32,
@@ -72,9 +74,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             n_reward_updates_per_round=10,
             n_episodes_adv_fn_est=32,
             n_timesteps_adv_fn_est=64,
-            observation_space = None,
-            action_space = None,
-            arglist = None,
+            observation_space=None,
+            action_space=None,
+            arglist=None,
             **kwargs,
     ):
         """
@@ -152,13 +154,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
     def sample_old_trajectory(self):
         """只从最近策略生成的轨迹中进行采样"""
-        recent_trajectories = [ traj for traj, iteration in self.trajectory_buffer if iteration >= self.current_iteration - self.recent_policy_window ]
+        recent_trajectories = [traj for traj, iteration in self.trajectory_buffer if
+                               iteration >= self.current_iteration - self.recent_policy_window]
         if len(recent_trajectories) == 0:
             raise ValueError("There are not enough recent trajectories to sample")
         return random.choice(recent_trajectories)
 
     @property
-    #@timeit_decorator
+    # @timeit_decorator
     def expert_kl(self) -> float:
         """KL divergence between the expert and the current policy.
         A Stablebaseline3-format expert policy is required.
@@ -277,10 +280,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                               torch.arange(0, n_timesteps, device=self.device))
 
         sample_num = int(n_episodes / self.arglist.n_env)
-        if sample_num == 0 :
+        if sample_num == 0:
             sample_num = 1
 
-        for ep_idx in range( sample_num):
+        for ep_idx in range(sample_num):
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
                 # start_time = time.perf_counter()
@@ -295,7 +298,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 )
                 # end_time = time.perf_counter()
                 # print("sampling (s,a) time=",end_time - start_time)
-                #self.store_trajectory(tran)  # Store the new trajectory in buffer
+                # self.store_trajectory(tran)  # Store the new trajectory in buffer
             else:
                 # Importance Sampling: Sample an old trajectory from the buffer
                 print("importance sampling (s,a)")
@@ -310,13 +313,13 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 q += torch.dot(rwds, discounts)
             else:
                 weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
-                print("weights=",weights)
+                print("weights=", weights)
                 # TODO: mean(weights * rwds) ??
                 q += torch.dot(weights * rwds, discounts)
 
         # The v calculation remains unchanged
         v = torch.zeros(1).to(self.device)
-        for ep_idx in range( sample_num):
+        for ep_idx in range(sample_num):
             # TODO: add Importance sampling
             # start_time = time.perf_counter()
             tran = rollouts.generate_transitions(
@@ -342,7 +345,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         return (q - v) / n_episodes
 
-    #@timeit_decorator
+    # @timeit_decorator
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
         """Update the policy to maximise the rewards under the new reward function. The PPO algorithm will be used.
 
@@ -363,7 +366,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         new_policy = PPO(
             policy=MlpPolicy,
             env=venv_with_cur_rwd_net,
-            n_steps = 1024,
+            n_steps=1024,
             batch_size=64,
             learning_rate=0.0005,
             n_epochs=5,
@@ -378,7 +381,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         return new_policy
 
-    #@timeit_decorator
+    # @timeit_decorator
     def update_reward(self, use_mc=False):
         """Perform a single reward update by conducting a complete pass over the demonstrations,
         optionally using provided samples. The loss is adapted from the constrained optimisation
@@ -394,6 +397,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # TODO: consider optimise a reward network from scratch
         # initialise the optimiser for the reward net
         # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing GD.
+        loss = torch.zeros(1).to(self.device)
+        avg_advantages = None
+        avg_reward_diff = None
+
         batch_iter = self._make_reward_train_batches()
 
         for batch in batch_iter:
@@ -404,8 +411,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             acts = batch["action"]
             next_obs = batch["next_state"]
             dones = batch["done"]
-
-            loss = torch.zeros(1).to(self.device)
 
             # estimated average estimated advantage function values
             cumul_advantages = torch.zeros(1).to(self.device)
@@ -421,20 +426,18 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
 
             if self._old_reward_net is None:
-                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(
-                    self.device)
+                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(self.device)
                 print("self._old_reward_net is None")
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
                 # in the first episode, diff=0 because the old reward equals the new one
-                reward_diff = self._reward_net(state_th, action_th, next_state_th,
-                                               done_th) - self._old_reward_net.predict_th(obs, acts, next_obs,
-                                                                                          dones).to(self.device)
+                reward_diff = (self._reward_net(state_th, action_th, next_state_th,done_th) -
+                               self._old_reward_net.predict_th(obs, acts, next_obs,dones).to(self.device))
 
             # TODO: two penalties should be calculated over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
-            #temp_kl = self.expert_kl
+            # temp_kl = self.expert_kl
             # print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff,"temp_kl=",temp_kl)
             #
             # print("target_kl=", self.target_kl,",avg_diff_coef=:",self.avg_diff_coef)
@@ -456,7 +459,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
-            print(self._global_step, "loss:", loss,"avg_advantages:", avg_advantages,"self.avg_diff_coef:", self.avg_diff_coef,"avg_reward_diff:",avg_reward_diff,"self.l2_norm_coef:", self.l2_norm_coef,"l2_norm_reward_diff:", l2_norm_reward_diff)
+            print("Batch:",self._global_step, " loss:", float(loss), " avg_advantages:", float(avg_advantages), " self.avg_diff_coef:",
+                  float(self.avg_diff_coef), " avg_reward_diff:", float(avg_reward_diff), " self.l2_norm_coef:", float(self.l2_norm_coef),
+                  " l2_norm_reward_diff:", float(l2_norm_reward_diff))
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
@@ -464,16 +469,20 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss.backward()
             self._rwd_opt.step()
 
-            writer.add_scalar("Train/loss", loss.item(), self._global_step)
-            writer.add_scalar("Train/avg_advantages", avg_advantages.item(), self._global_step)
-            writer.add_scalar("Train/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+            writer.add_scalar("Batch/loss", loss.item(), self._global_step)
+            writer.add_scalar("Batch/avg_advantages", avg_advantages.item(), self._global_step)
+            writer.add_scalar("Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
 
             # end_batch = time.time()
             # print("batch_time=", end_batch - start_batch)
 
             self._global_step += 1
 
-    #@timeit_decorator
+        writer.add_scalar("Update_Reward/loss", loss.item(), self._global_step)
+        writer.add_scalar("Update_Reward/avg_advantages", avg_advantages.item(), self._global_step)
+        writer.add_scalar("Update_Reward/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+
+    # @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
         """
         Args:
@@ -499,27 +508,27 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             self._old_policy = self.train_new_policy_for_new_reward()
             trian_ppo_time = time.time()
-            print("trian_ppo_time=",trian_ppo_time-start_time)
+            print("trian_ppo_time=", trian_ppo_time - start_time)
 
             # Determine whether to use Monte Carlo or Importance Sampling
-            #use_mc = (r % 20 == 0)
+            # use_mc = (r % 20 == 0)
             use_mc = True
 
             # Update the reward network.
             for _ in range(self.n_reward_updates_per_round):
+                self._old_reward_net = copy.deepcopy(self._reward_net)
                 reward_time_start = time.time()
                 self.update_reward(use_mc=use_mc)
                 reward_time_end = time.time()
-                print("update_reward_time=",reward_time_end-reward_time_start)
+                print("update_reward_time=", reward_time_end - reward_time_start)
 
-            self._old_reward_net = copy.deepcopy(self._reward_net)
             distance = self.expert_kl
             reward = self.evaluate_policy
 
             writer.add_scalar("Result/distance", distance, r)
             writer.add_scalar("Result/reward", reward, r)
 
-            self.logger.record("round " + str(r),'Distance: ' + str(distance) + '. Reward: ' + str(reward))
+            self.logger.record("round " + str(r), 'Distance: ' + str(distance) + '. Reward: ' + str(reward))
             self.logger.dump(step=10)
 
             if r % save_interval == 0:

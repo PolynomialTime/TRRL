@@ -14,9 +14,8 @@ def parse_args():
     parser.add_argument("--device", type=str, default='cpu', help="torch device")
 
     # environment
-    # parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
-    # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3
-    parser.add_argument("--env_name", type=str, default="Ant-v4", help="the environment")
+    # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3, FrozenLake-v1, CartPole-v1
+    parser.add_argument("--env_name", type=str, default="FrozenLake-v1", help="the environment")
     parser.add_argument("--n_env", type=int, default=8, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
