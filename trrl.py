@@ -61,7 +61,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger: Optional[logger.HierarchicalLogger] = None,
             reward_net: RewardNet,
             discount: np.float32,
-            target_kl: np.float32,
+            target_reward_diff: 0.005,
+            target_reward_l2_norm: 0.1,
             avg_diff_coef: np.float32,
             l2_norm_coef: np.float32,
             l2_norm_upper_bound: np.float32,
@@ -118,7 +119,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.avg_diff_coef = avg_diff_coef
         self.l2_norm_coef = l2_norm_coef
         self.l2_norm_upper_bound = l2_norm_upper_bound
-        self.target_kl = target_kl
+        self.target_reward_diff = target_reward_diff
+        self.target_reward_l2_norm = target_reward_l2_norm
         # self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
         self.venv = venv
         self.device = device
@@ -314,25 +316,28 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             else:
                 weights = self.compute_is_weights(self._old_policy, self._new_policy, tran.obs, tran.acts)
                 print("weights=", weights)
-                # TODO: mean(weights * rwds) ??
                 q += torch.dot(weights * rwds, discounts)
 
-        # The v calculation remains unchanged
         v = torch.zeros(1).to(self.device)
         for ep_idx in range(sample_num):
-            # TODO: add Importance sampling
-            # start_time = time.perf_counter()
-            tran = rollouts.generate_transitions(
-                self._old_policy,
-                self.venv,
-                n_timesteps=n_timesteps,
-                rng=np.random.default_rng(0),
-                starting_state=starting_s,
-                starting_action=None,
-                truncate=True,
-            )
-            # end_time = time.perf_counter()
-            # print("sampling (s) time=", end_time - start_time)
+            if use_mc:
+                start_time = time.perf_counter()
+                tran = rollouts.generate_transitions(
+                    self._old_policy,
+                    self.venv,
+                    n_timesteps=n_timesteps,
+                    rng=np.random.default_rng(0),
+                    starting_state=starting_s,
+                    starting_action=None,
+                    truncate=True,
+                )
+                end_time = time.perf_counter()
+                print("sampling (s) time=", end_time - start_time)
+            else:
+                # Importance Sampling: Sample an old trajectory from the buffer
+                print("importance sampling (s,a)")
+                tran = self.sample_old_trajectory()
+
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
@@ -438,26 +443,27 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # TODO: two penalties should be calculated over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
-            # temp_kl = self.expert_kl
-            # print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff,"temp_kl=",temp_kl)
-            #
-            # print("target_kl=", self.target_kl,",avg_diff_coef=:",self.avg_diff_coef)
-            # if temp_kl > self.target_kl * 1.5:
-            #     self.avg_diff_coef = self.avg_diff_coef * 1.2
-            # elif temp_kl < self.target_kl / 1.5:
-            #     self.avg_diff_coef = self.avg_diff_coef / 1.2
 
-            # self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
-            # self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
+            print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff)
 
-            # if l2_norm_reward_diff > 1:
-            #     self.l2_norm_coef = self.l2_norm_coef * 1.1
-            # elif l2_norm_reward_diff < 0.01:
-            #     self.l2_norm_coef = self.l2_norm_coef / 1.1
+            # adaptive coef adjustment paremeters
+            if self.avg_diff_coef > self.avg_diff_coef * 1.5:
+                self.avg_diff_coef = self.avg_diff_coef / 2
+            elif self.avg_diff_coef < self.avg_diff_coef / 1.5:
+                self.avg_diff_coef = self.avg_diff_coef * 2
 
-            # self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
-            # self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
+            self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
+            self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
 
+            if l2_norm_reward_diff > self.target_reward_l2_norm:
+                self.l2_norm_coef = self.l2_norm_coef * 2
+            elif l2_norm_reward_diff < self.target_reward_l2_norm:
+                self.l2_norm_coef = self.l2_norm_coef / 2
+
+            self.l2_norm_coef = torch.from_numpy(self.l2_norm_coef)
+            self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
+
+            # loss backward
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
             print("Batch:",self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:", round(avg_advantages.item(), 5), " self.avg_diff_coef:",

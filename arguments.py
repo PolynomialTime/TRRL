@@ -32,9 +32,12 @@ def parse_args():
     parser.add_argument("--l2_norm_upper_bound", type=float, default=0.1,
                         help="upper bound for the l2 norm of the difference between the old and new reward function")
 
-    #adaptive coef adjustment paremeters
-    parser.add_argument("--target_kl", type=float, default=1000,
-                        help="KL divergence threshold for dynamic adjustment of  Lagrange multiplier.")
+    # adaptive coef adjustment paremeters
+    parser.add_argument("--target_avg_diff_coef", type=float, default=1,
+                        help="threshold for dynamic adjustment of Lagrange multiplier for average reward difference.")
+    parser.add_argument("--target_reward_l2_norm", type=float, default=1,
+                        help="threshold for dynamic adjustment of Lagrange multiplier for l2 norm of reward difference.")
+
 
     # experiment control parameters
     parser.add_argument("--n_rounds", type=int, default=1000, help="number of global rounds")
