@@ -49,5 +49,6 @@ starting_action = np.array([0], dtype=np.integer)
 loss = torch.zeros((1,1))
 print(loss)
 '''
-for i in range(0, 10, 3):
-    print(i)
+x = np.float32(0.1)
+t = torch.tensor(data=x, dtype=torch.float32)
+print(t)
