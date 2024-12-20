@@ -152,20 +152,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.MAX_BUFFER_SIZE_PER_KEY = 400
         self.behavior_policy = None
 
-    def store_trajectory(self, trajectory):
-        """存储轨迹，并将它与当前策略的迭代次数相关联"""
-        if len(self.trajectory_buffer) >= self.MAX_BUFFER_SIZE:
-            self.trajectory_buffer.pop(0)
-        self.trajectory_buffer.append((trajectory, self.current_iteration))  # 存储轨迹和对应的策略迭代次数
-
-    def sample_old_trajectory(self):
-        """只从最近策略生成的轨迹中进行采样"""
-        recent_trajectories = [traj for traj, iteration in self.trajectory_buffer if
-                               iteration >= self.current_iteration - self.recent_policy_window]
-        if len(recent_trajectories) == 0:
-            raise ValueError("There are not enough recent trajectories to sample")
-        return random.choice(recent_trajectories)
-
     @property
     # @timeit_decorator
     def expert_kl(self) -> float:
