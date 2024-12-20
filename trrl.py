@@ -471,9 +471,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             # adaptive coef adjustment paremeters
                 # if avg_diff_coef (+) too high, reduce its coef
-            if self.avg_diff_coef > self.avg_diff_coef * 1.5:
+            if avg_reward_diff > self.target_reward_diff * 1.5:
                 self.avg_diff_coef = self.avg_diff_coef / 2
-            elif self.avg_diff_coef < self.avg_diff_coef / 1.5:
+            elif avg_reward_diff < self.target_reward_diff / 1.5:
                 self.avg_diff_coef = self.avg_diff_coef * 2
 
             self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
@@ -485,14 +485,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             elif l2_norm_reward_diff < self.target_reward_l2_norm:
                 self.l2_norm_coef = self.l2_norm_coef / 2
 
-            self.l2_norm_coef = torch.from_numpy(self.l2_norm_coef)
+            self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
             # loss backward
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
             print("Batch:",self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:", round(avg_advantages.item(), 5), " self.avg_diff_coef:",
-                  round(self.avg_diff_coef, 5), " avg_reward_diff:", round(avg_reward_diff.item(), 5), " self.l2_norm_coef:", round(self.l2_norm_coef, 5),
+                  round(self.avg_diff_coef.item(), 5), " avg_reward_diff:", round(avg_reward_diff.item(), 5), " self.l2_norm_coef:", round(self.l2_norm_coef.item(), 5),
                   " l2_norm_reward_diff:", round(l2_norm_reward_diff.item(), 5))
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
