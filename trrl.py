@@ -274,41 +274,52 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         if sample_num == 0:
             sample_num = 1
+        
+        # # 打印缓冲区内容
+        # print("===== Q Buffer Contents =====")
+        # for key, trajectories in self.trajectory_buffer_q.items():
+        #     print(f"Key: {key}, Number of trajectories: {len(trajectories)}")
+        
+        # # 打印缓冲区内容
+        # print("===== V Buffer Contents =====")
+        # for key, trajectories in self.trajectory_buffer_v.items():
+        #     print(f"Key: {key}, Number of trajectories: {len(trajectories)}")
+        
+
 
         key_q = ((starting_s,) if isinstance(starting_s, (int, np.integer)) else tuple(starting_s),
                 (starting_a,) if isinstance(starting_a, (int, np.integer)) else tuple(starting_a))
 
         if use_mc:
-            start_time = time.perf_counter()
-            for ep_idx in range(sample_num):
-                # Monte Carlo: Sample a new trajectory
-                self.behavior_policy = copy.copy(self._old_policy)
+            #start_time = time.perf_counter()
+            if key_q not in self.trajectory_buffer_q:
+                self.trajectory_buffer_q[key_q] = [] 
+                for ep_idx in range(sample_num):
+                    # Monte Carlo: Sample a new trajectory
+                    self.behavior_policy = copy.copy(self._old_policy)
 
-                if key_q not in self.trajectory_buffer_q:
-                    self.trajectory_buffer_q[key_q] = [] 
+                    tran = rollouts.generate_transitions(
+                        self._old_policy,
+                        self.venv,
+                        rng=np.random.default_rng(0),
+                        n_timesteps=n_timesteps,
+                        starting_state=starting_s,
+                        starting_action=starting_a,
+                        truncate=True,
+                    )
+                    self.trajectory_buffer_q[key_q].append(tran)  
 
-                tran = rollouts.generate_transitions(
-                    self._old_policy,
-                    self.venv,
-                    rng=np.random.default_rng(0),
-                    n_timesteps=n_timesteps,
-                    starting_state=starting_s,
-                    starting_action=starting_a,
-                    truncate=True,
-                )
-                self.trajectory_buffer_q[key_q].append(tran)  
+                    if len(self.trajectory_buffer_q[key_q]) > self.MAX_BUFFER_SIZE_PER_KEY:
+                        self.trajectory_buffer_q[key_q].pop(0)  
 
-                if len(self.trajectory_buffer_q[key_q]) > self.MAX_BUFFER_SIZE_PER_KEY:
-                    self.trajectory_buffer_q[key_q].pop(0)  
-
-                state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
-                                                                                      tran.next_obs, tran.dones)
-                rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-                q += torch.dot(rwds, discounts)
-            end_time = time.perf_counter()
-            print("sampling (s,a) time=",end_time - start_time)
+                    state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
+                                                                                        tran.next_obs, tran.dones)
+                    rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
+                    q += torch.dot(rwds, discounts)
+            #end_time = time.perf_counter()
+            #print("sampling (s,a) time=",end_time - start_time)
         else:
-            start_time = time.perf_counter()
+            #start_time = time.perf_counter()
             if key_q not in self.trajectory_buffer_q or len(self.trajectory_buffer_q[key_q]) == 0:
                 raise ValueError(f"No trajectories available in buffer for Q(s={starting_s}, a={starting_a}).")
 
@@ -321,39 +332,37 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 weights = self.compute_is_weights(self.behavior_policy, self._new_policy, tran.obs, tran.acts)
                 #print("weights=", weights)
                 q += torch.dot(weights * rwds, discounts)
-            end_time = time.perf_counter()
-            print("IS time=",end_time - start_time)
+            #end_time = time.perf_counter()
+            #print("IS time=",end_time - start_time)
 
         v = torch.zeros(1).to(self.device)
         key_v = (starting_s,) if isinstance(starting_s, (int, np.integer)) else tuple(starting_s)
         if use_mc:
-            for ep_idx in range(sample_num):
-                if key_v not in self.trajectory_buffer_v:
-                    self.trajectory_buffer_v[key_v] = [] 
-                #start_time = time.perf_counter()
-                tran = rollouts.generate_transitions(
-                    self._old_policy,
-                    self.venv,
-                    n_timesteps=n_timesteps,
-                    rng=np.random.default_rng(0),
-                    starting_state=starting_s,
-                    starting_action=None,
-                    truncate=True,
-                )
-                #end_time = time.perf_counter()
-                #print("sampling (s) time=", end_time - start_time)
-                self.trajectory_buffer_v[key_v].append(tran)
-                if len(self.trajectory_buffer_v[key_v]) > self.MAX_BUFFER_SIZE_PER_KEY:
-                    self.trajectory_buffer_v[key_v].pop(0) 
+            if key_v not in self.trajectory_buffer_v:
+                self.trajectory_buffer_v[key_v] = []
+                for ep_idx in range(sample_num):    
+                    tran = rollouts.generate_transitions(
+                        self._old_policy,
+                        self.venv,
+                        n_timesteps=n_timesteps,
+                        rng=np.random.default_rng(0),
+                        starting_state=starting_s,
+                        starting_action=None,
+                        truncate=True,
+                    )
+                    self.trajectory_buffer_v[key_v].append(tran)
+                    if len(self.trajectory_buffer_v[key_v]) > self.MAX_BUFFER_SIZE_PER_KEY:
+                        self.trajectory_buffer_v[key_v].pop(0) 
 
-                state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
-                                                                                      tran.next_obs, tran.dones)
-                rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-                v += torch.dot(rwds, discounts)   
+                    state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
+                                                                                        tran.next_obs, tran.dones)
+                    rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
+                    v += torch.dot(rwds, discounts)   
+
         else:
             if key_v not in self.trajectory_buffer_v or len(self.trajectory_buffer_v[key_v]) == 0:
                 raise ValueError(f"No trajectories available in buffer for V(s={starting_s}).")
-
+            
             for tran in self.trajectory_buffer_v[key_v]:
                 state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
                         tran.obs, tran.acts, tran.next_obs, tran.dones
@@ -363,7 +372,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 weights = self.compute_is_weights(self.behavior_policy, self._new_policy, tran.obs, tran.acts)
                 v += torch.dot(weights * rwds, discounts)
 
-        return (q - v) / n_episodes
+        return (q - v) / sample_num
 
     # @timeit_decorator
     def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
