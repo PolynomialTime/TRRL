@@ -81,11 +81,11 @@ if __name__ == '__main__':
 
     # load expert data
 
-    # expert = PPO.load(f"./expert_data/{arglist.env_name}")
-    # transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
+    expert = PPO.load(f"./expert_data/{arglist.env_name}")
+    transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
 
-    expert = train_expert()  # uncomment to train your own expert
-    transitions = sample_expert_transitions(expert)
+    # expert = train_expert()  # uncomment to train your own expert
+    # transitions = sample_expert_transitions(expert)
 
     mean_reward, std_reward = evaluate_policy(model=expert, env=env)
     print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
@@ -129,9 +129,11 @@ if __name__ == '__main__':
         demo_batch_size=arglist.demo_batch_size,
         reward_net=rwd_net,
         discount=arglist.discount,
-        avg_diff_coef=arglist.avg_diff_coef,
+        avg_diff_coef=arglist.avg_reward_diff_coef,
         l2_norm_coef=arglist.l2_norm_coef,
         l2_norm_upper_bound=arglist.l2_norm_upper_bound,
+        target_reward_diff=arglist.target_reward_diff,
+        target_reward_l2_norm=arglist.target_reward_l2_norm,
         ent_coef=arglist.ent_coef,
         device=DEVICE,
         n_policy_updates_per_round=arglist.n_policy_updates_per_round,
@@ -145,4 +147,4 @@ if __name__ == '__main__':
     )
     print("Starting reward learning.")
 
-    trrl_trainer.train(n_rounds=arglist.n_rounds)
+    trrl_trainer.train(n_rounds=arglist.n_global_rounds)
