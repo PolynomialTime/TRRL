@@ -285,7 +285,19 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         if sample_num == 0:
             sample_num = 1
 
+        
         for ep_idx in range(sample_num):
+            # Monte Carlo: Sample a new trajectory
+            tran = rollouts.generate_transitions(
+                    self._old_policy,
+                    self.venv,
+                    rng=np.random.default_rng(0),
+                    n_timesteps=n_timesteps,
+                    starting_state=starting_s,
+                    starting_action=starting_a,
+                    truncate=True,
+                )
+            """
             if use_mc:
                 # Monte Carlo: Sample a new trajectory
                 # start_time = time.perf_counter()
@@ -306,7 +318,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 print("importance sampling (s,a)")
                 tran = self.sample_old_trajectory()
                 # self.store_trajectory(tran)
-
+        """
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
             rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
@@ -320,6 +332,17 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         v = torch.zeros(1).to(self.device)
         for ep_idx in range(sample_num):
+            # Monte Carlo: Sample a new trajectory
+            tran = rollouts.generate_transitions(
+                self._old_policy,
+                self.venv,
+                n_timesteps=n_timesteps,
+                rng=np.random.default_rng(0),
+                starting_state=starting_s,
+                starting_action=None,
+                truncate=True,
+            )
+            """
             if use_mc:
                 start_time = time.perf_counter()
                 tran = rollouts.generate_transitions(
@@ -337,7 +360,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 # Importance Sampling: Sample an old trajectory from the buffer
                 print("importance sampling (s,a)")
                 tran = self.sample_old_trajectory()
-
+            """
 
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(tran.obs, tran.acts,
                                                                                       tran.next_obs, tran.dones)
