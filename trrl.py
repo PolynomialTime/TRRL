@@ -485,7 +485,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             elif l2_norm_reward_diff < self.target_reward_l2_norm:
                 self.l2_norm_coef = self.l2_norm_coef / 2
 
-            self.l2_norm_coef = torch.from_numpy(self.l2_norm_coef)
+            self.l2_norm_coef = torch.from_numpy(np.array([self.l2_norm_coef]))
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
             # loss backward
