@@ -140,7 +140,6 @@ if __name__ == '__main__':
         n_reward_updates_per_round=arglist.n_reward_updates_per_round,
         n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
         n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est,
-        target_kl=arglist.target_kl,
         observation_space = observation_space,
         action_space = action_space,
         arglist = arglist
