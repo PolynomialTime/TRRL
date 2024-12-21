@@ -293,11 +293,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         if use_mc:
             #start_time = time.perf_counter()
             if key_q not in self.trajectory_buffer_q:
-                self.trajectory_buffer_q[key_q] = [] 
+                self.trajectory_buffer_q[key_q] = []
+                self.behavior_policy = copy.copy(self._old_policy)
+
                 for ep_idx in range(sample_num):
                     # Monte Carlo: Sample a new trajectory
-                    self.behavior_policy = copy.copy(self._old_policy)
-
                     tran = rollouts.generate_transitions(
                         self._old_policy,
                         self.venv,
@@ -318,6 +318,18 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                     q += torch.dot(rwds, discounts)
             #end_time = time.perf_counter()
             #print("sampling (s,a) time=",end_time - start_time)
+            else:
+                cached_rewards_q = []
+                for tran in self.trajectory_buffer_q[key_q]:
+                    state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
+                        tran.obs, tran.acts, tran.next_obs, tran.dones
+                    )
+                    rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
+                    cached_rewards_q.append(torch.dot(rwds, discounts))
+
+                if cached_rewards_q:
+                    q += torch.mean(torch.stack(cached_rewards_q))
+
         else:
             #start_time = time.perf_counter()
             if key_q not in self.trajectory_buffer_q or len(self.trajectory_buffer_q[key_q]) == 0:
@@ -358,7 +370,17 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                                                                                         tran.next_obs, tran.dones)
                     rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
                     v += torch.dot(rwds, discounts)   
+            else:
+                cached_rewards_v = []
+                for tran in self.trajectory_buffer_q[key_q]:
+                    state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
+                        tran.obs, tran.acts, tran.next_obs, tran.dones
+                    )
+                    rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
+                    cached_rewards_v.append(torch.dot(rwds, discounts))
 
+                if cached_rewards_v:
+                    q += torch.mean(torch.stack(cached_rewards_v))
         else:
             if key_v not in self.trajectory_buffer_v or len(self.trajectory_buffer_v[key_v]) == 0:
                 raise ValueError(f"No trajectories available in buffer for V(s={starting_s}).")
