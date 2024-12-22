@@ -324,7 +324,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         cached_rewards_v = []
         # Monte Carlo
         if use_mc:
-            start_time = time.perf_counter()
             if key_v not in self.trajectory_buffer_v:
                 self.trajectory_buffer_v[key_v] = []
                 for ep_idx in range(sample_num):

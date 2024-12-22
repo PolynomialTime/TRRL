@@ -64,7 +64,7 @@ def parse_args():
     parser.add_argument("--save_results_dir", type=str, default="./output/",
                         help="directory which results are output to")
 
-    parser.add_argument("--transition_truncate_len", type=int, default=128,
+    parser.add_argument("--transition_truncate_len", type=int, default=1024,
                         help="truncate transitions")
 
     parser.add_argument("--mc_interval", type=int, default=10,
