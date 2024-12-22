@@ -700,6 +700,66 @@ def generate_transitions(
     return transitions
 
 
+def generate_transitions_new(
+        policy: AnyPolicy,
+        venv: VecEnv,
+        n_timesteps: int,
+        rng: np.random.Generator,
+        *,
+        starting_state: None,
+        starting_action: None,
+        truncate: bool = True,
+        **kwargs: Any,
+) -> list:
+    """Generate obs-action-next_obs-reward tuples.
+
+    Args:
+        policy: Can be any of the following:
+            - A stable_baselines3 policy or algorithm trained on the gym environment
+            - A Callable that takes an ndarray of observations and returns an ndarray
+            of corresponding actions
+            - None, in which case actions will be sampled randomly
+        venv: The vectorized environments to interact with.
+        n_timesteps: The minimum number of timesteps to sample.
+        rng: The random state to use for sampling trajectories.
+        truncate: If True, then drop any additional samples to ensure that exactly
+            `n_timesteps` samples are returned.
+        starting_state: starting state of a generated trajectory if specified.
+        starting_action: starting action of a generated trajectory if specified.
+        **kwargs: Passed-through to generate_trajectories.
+
+    Returns:
+        A batch of Transitions. The length of the constituent arrays is guaranteed
+        to be at least `n_timesteps` (if specified), but may be greater unless
+        `truncate` is provided as we collect data until the end of each episode.
+    """
+    traj = generate_trajectories(
+        policy,
+        venv,
+        sample_until=make_min_timesteps(n_timesteps),
+        rng=rng,
+        starting_state=starting_state,
+        starting_action=starting_action,
+        **kwargs,
+    )
+    # print("traj",traj)
+    # print("traj",len(traj))
+
+    result_traj = []
+    for t in traj:
+        # print("phi_t",t)
+        transitions = flatten_trajectories_with_rew([t])
+
+        if truncate and n_timesteps is not None:
+            as_dict = types.dataclass_quick_asdict(transitions)
+            truncated = {k: arr[:n_timesteps] for k, arr in as_dict.items()}
+            transitions = types.TransitionsWithRew(**truncated)
+        result_traj.append(transitions)
+
+    # print("result_traj",result_traj)
+    return result_traj
+
+
 def rollout(
         policy: AnyPolicy,
         venv: VecEnv,

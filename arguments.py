@@ -15,8 +15,8 @@ def parse_args():
 
     # environment
     # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3, FrozenLake-v1, CartPole-v1，MountainCar-v0
-    parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
-    parser.add_argument("--n_env", type=int, default=1, help="number of parallel envs in venvs")
+    parser.add_argument("--env_name", type=str, default="FrozenLake-v1", help="the environment")
+    parser.add_argument("--n_env", type=int, default=8, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
     parser.add_argument("--demo_batch_size", type=int, default=64, help="number of demos to generate")
@@ -41,11 +41,11 @@ def parse_args():
 
     # experiment control parameters
     parser.add_argument("--n_global_rounds", type=int, default=1000, help="number of global rounds")
-    parser.add_argument("--n_policy_updates_per_round", type=int, default=100000,
+    parser.add_argument("--n_policy_updates_per_round", type=int, default=10000,
                         help="number of policy udpates per global round")
     parser.add_argument("--n_reward_updates_per_round", type=int, default=10,
                         help="number of reward udpates per global round")
-    parser.add_argument("--n_episodes_adv_fn_est", type=int, default=128,
+    parser.add_argument("--n_episodes_adv_fn_est", type=int, default=16,
                         help="number of episodes for advantage function estimation")
     parser.add_argument("--n_timesteps_adv_fn_est", type=int, default=64,
                         help="number of timesteps for advantage function estimation")
@@ -67,4 +67,6 @@ def parse_args():
     parser.add_argument("--transition_truncate_len", type=int, default=1024,
                         help="truncate transitions")
 
+    parser.add_argument("--mc_interval", type=int, default=10,
+                        help="Monte Carlo sample interval")
     return parser.parse_args()

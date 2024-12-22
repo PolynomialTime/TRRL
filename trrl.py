@@ -2,6 +2,7 @@
 
 Trains a reward function whose induced policy is monotonically improved towards the expert policy.
 """
+import math
 import os
 import time
 from typing import Callable, Iterator, Mapping, Optional, Type, cast
@@ -76,7 +77,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             n_reward_updates_per_round=10,
             n_episodes_adv_fn_est=32,
             n_timesteps_adv_fn_est=64,
-            n_env=8,
             observation_space=None,
             action_space=None,
             arglist=None,
@@ -112,7 +112,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 `replay_buffer_class` or `replay_buffer_kwargs`.
         """
         self.arglist = arglist
-        self.n_env=n_env
         self.action_space = action_space
         self.observation_space = observation_space
         self._rwd_opt_cls = rwd_opt_cls
@@ -266,41 +265,26 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         else:
             starting_s = starting_state
 
-
         discounts = torch.pow(torch.ones(n_timesteps, device=self.device) * self.discount,
                               torch.arange(0, n_timesteps, device=self.device))
 
-        sample_num = int(n_episodes / self.n_env)
-
-        if sample_num == 0:
-            sample_num = n_episodes
-        
-        # # 打印缓冲区内容
-        # print("===== Q Buffer Contents =====")
-        # for key, trajectories in self.trajectory_buffer_q.items():
-        #     print(f"Key: {key}, Number of trajectories: {len(trajectories)}")
-        
-        # # 打印缓冲区内容
-        # print("===== V Buffer Contents =====")
-        # for key, trajectories in self.trajectory_buffer_v.items():
-        #     print(f"Key: {key}, Number of trajectories: {len(trajectories)}")
-        
+        sample_num = math.ceil(n_episodes / self.arglist.n_env)
+        #print("n_episodes:",n_episodes,"self.n_env:",self.arglist.n_env,"sample_num:",sample_num)
         # Starting estimating Q(s,a)
         # Store trajectories staring at (s,a). We skip MC sampling for previously encounered (s,a) and will use the trajectories stored in the buffer.
         key_q = ((starting_s,) if isinstance(starting_s, (int, np.integer)) else tuple(starting_s),
-                (starting_a,) if isinstance(starting_a, (int, np.integer)) else tuple(starting_a))
+                 (starting_a,) if isinstance(starting_a, (int, np.integer)) else tuple(starting_a))
         # Cache rewards of trajectories staring at (s,a) for calculating Q(s,a)
         cached_rewards_q = []
 
+
         # Monte Carlo
         if use_mc:
-            #start_time = time.perf_counter()
             if key_q not in self.trajectory_buffer_q:
                 self.trajectory_buffer_q[key_q] = []
-
                 for ep_idx in range(sample_num):
                     # Monte Carlo: Sample a new trajectory
-                    tran = rollouts.generate_transitions(
+                    tran = rollouts.generate_transitions_new(
                         self.behavior_policy,
                         self.venv,
                         rng=np.random.default_rng(0),
@@ -309,37 +293,30 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                         starting_action=starting_a,
                         truncate=True,
                     )
-                    self.trajectory_buffer_q[key_q].append(tran)  
+                    for i in range(len(tran)):
+                        if len(self.trajectory_buffer_q[key_q]) > self.MAX_BUFFER_SIZE_PER_KEY:
+                            self.trajectory_buffer_q[key_q].pop(0)
 
-                    if len(self.trajectory_buffer_q[key_q]) > self.MAX_BUFFER_SIZE_PER_KEY:
-                        self.trajectory_buffer_q[key_q].pop(0)  
-            #end_time = time.perf_counter()
-            #print("sampling (s,a) time=",end_time - start_time)
-            
-            for tran in self.trajectory_buffer_q[key_q]:
+                        self.trajectory_buffer_q[key_q].append(tran[i])
+
+            for trajectory in self.trajectory_buffer_q[key_q]:
                 state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
-                    tran.obs, tran.acts, tran.next_obs, tran.dones
+                    trajectory.obs, trajectory.acts, trajectory.next_obs, trajectory.dones
                 )
                 rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-                cached_rewards_q.append(torch.dot(rwds, discounts))
+                cached_rewards_q.append(torch.dot(rwds, discounts[:len(rwds)]))
+
         # Improtance Sampling
         else:
-            #start_time = time.perf_counter()
-            if key_q not in self.trajectory_buffer_q or len(self.trajectory_buffer_q[key_q]) == 0:
-                raise ValueError(f"No trajectories available in buffer for Q(s={starting_s}, a={starting_a}).")
-
-            for tran in self.trajectory_buffer_q[key_q]:
+            for trajectory in self.trajectory_buffer_q[key_q]:
                 state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
-                        tran.obs, tran.acts, tran.next_obs, tran.dones
-                    )
+                    trajectory.obs, trajectory.acts, trajectory.next_obs, trajectory.dones
+                )
                 rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
 
-                weights = self.compute_is_weights(self.behavior_policy, self._new_policy, tran.obs, tran.acts)
-                #print("weights=", weights)
-                cached_rewards_q.append(torch.dot(weights * rwds, discounts))
-            #end_time = time.perf_counter()
-        #print("IS time=",end_time - start_time)
-        # Q(s,a) = averged rewards in cached trajectories starting at (s,a)
+                weights = self.compute_is_weights(self.behavior_policy, self._new_policy, trajectory.obs, trajectory.acts)
+                cached_rewards_q.append(torch.dot(weights * rwds, discounts[:len(rwds)]))
+
         q = torch.mean(torch.stack(cached_rewards_q))
 
         # Starting estimating V(s)
@@ -349,8 +326,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         if use_mc:
             if key_v not in self.trajectory_buffer_v:
                 self.trajectory_buffer_v[key_v] = []
-                for ep_idx in range(sample_num):    
-                    tran = rollouts.generate_transitions(
+                for ep_idx in range(sample_num):
+                    tran = rollouts.generate_transitions_new(
                         self.behavior_policy,
                         self.venv,
                         n_timesteps=n_timesteps,
@@ -359,29 +336,29 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                         starting_action=None,
                         truncate=True,
                     )
-                    self.trajectory_buffer_v[key_v].append(tran)
-                    if len(self.trajectory_buffer_v[key_v]) > self.MAX_BUFFER_SIZE_PER_KEY:
-                        self.trajectory_buffer_v[key_v].pop(0) 
-  
-            for tran in self.trajectory_buffer_v[key_v]:
+                    for i in range(len(tran)):
+                        if len(self.trajectory_buffer_v[key_v]) > self.MAX_BUFFER_SIZE_PER_KEY:
+                            self.trajectory_buffer_v[key_v].pop(0)
+
+                        self.trajectory_buffer_v[key_v].append(tran[i])
+
+            for trajectory in self.trajectory_buffer_v[key_v]:
                 state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
-                    tran.obs, tran.acts, tran.next_obs, tran.dones
+                    trajectory.obs, trajectory.acts, trajectory.next_obs, trajectory.dones
                 )
                 rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-                cached_rewards_v.append(torch.dot(rwds, discounts))
+                cached_rewards_v.append(torch.dot(rwds, discounts[:len(rwds)]))
+
         # Improtance Sampling
         else:
-            if key_v not in self.trajectory_buffer_v or len(self.trajectory_buffer_v[key_v]) == 0:
-                raise ValueError(f"No trajectories available in buffer for V(s={starting_s}).")
-            
-            for tran in self.trajectory_buffer_v[key_v]:
+            for trajectory in self.trajectory_buffer_v[key_v]:
                 state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
-                        tran.obs, tran.acts, tran.next_obs, tran.dones
-                    )
+                    trajectory.obs, trajectory.acts, trajectory.next_obs, trajectory.dones
+                )
                 rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-                weights = self.compute_is_weights(self.behavior_policy, self._new_policy, tran.obs, tran.acts)
-                cached_rewards_v.append(torch.dot(weights * rwds, discounts))
-        
+                weights = self.compute_is_weights(self.behavior_policy, self._new_policy, trajectory.obs, trajectory.acts)
+                cached_rewards_v.append(torch.dot(weights * rwds, discounts[:len(rwds)]))
+
         v = torch.mean(torch.stack(cached_rewards_v))
 
         return q - v
@@ -446,8 +423,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         batch_iter = self._make_reward_train_batches()
 
         if use_mc:
-                self.trajectory_buffer_q.clear()
-                self.trajectory_buffer_v.clear()
+            self.trajectory_buffer_q.clear()
+            self.trajectory_buffer_v.clear()
 
         for batch in batch_iter:
 
@@ -472,22 +449,23 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
 
             if self._old_reward_net is None:
-                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(self.device)
-                print("self._old_reward_net is None")
+                reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(
+                    self.device)
+                # print("self._old_reward_net is None")
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
                 # in the first episode, diff=0 because the old reward equals the new one
-                reward_diff = (self._reward_net(state_th, action_th, next_state_th,done_th) -
-                               self._old_reward_net.predict_th(obs, acts, next_obs,dones).to(self.device))
+                reward_diff = (self._reward_net(state_th, action_th, next_state_th, done_th) -
+                               self._old_reward_net.predict_th(obs, acts, next_obs, dones).to(self.device))
 
             # TODO: two penalties should be calculated over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
 
-            print("avg_reward_diff=",avg_reward_diff,"l2_norm_reward_diff=",l2_norm_reward_diff)
+            print("avg_reward_diff=", avg_reward_diff, "l2_norm_reward_diff=", l2_norm_reward_diff)
 
             # adaptive coef adjustment paremeters
-                # if avg_diff_coef (+) too high, reduce its coef
+            # if avg_diff_coef (+) too high, reduce its coef
             if avg_reward_diff > self.target_reward_diff * 1.5:
                 self.avg_diff_coef = self.avg_diff_coef / 2
             elif avg_reward_diff < self.target_reward_diff / 1.5:
@@ -496,7 +474,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
             self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
 
-                # if l2_norm_reward_diff (-) too high, increase its coef
+            # if l2_norm_reward_diff (-) too high, increase its coef
             if l2_norm_reward_diff > self.target_reward_l2_norm:
                 self.l2_norm_coef = self.l2_norm_coef * 2
             elif l2_norm_reward_diff < self.target_reward_l2_norm:
@@ -508,9 +486,11 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # loss backward
             loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
 
-            print("Batch:",self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:", round(avg_advantages.item(), 5), " self.avg_diff_coef:",
-                  round(self.avg_diff_coef.item(), 5), " avg_reward_diff:", round(avg_reward_diff.item(), 5), " self.l2_norm_coef:", round(self.l2_norm_coef.item(), 5),
-                  " l2_norm_reward_diff:", round(l2_norm_reward_diff.item(), 5))
+            # print("Batch:", self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:",
+            #       round(avg_advantages.item(), 5), " self.avg_diff_coef:",
+            #       round(self.avg_diff_coef.item(), 5), " avg_reward_diff:", round(avg_reward_diff.item(), 5),
+            #       " self.l2_norm_coef:", round(self.l2_norm_coef.item(), 5),
+            #       " l2_norm_reward_diff:", round(l2_norm_reward_diff.item(), 5))
 
             loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
@@ -558,12 +538,13 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             start_time = time.time()
 
             self._old_policy = self.train_new_policy_for_new_reward()
-            train_ppo_time = time.time()
-            print("train_ppo_time=", train_ppo_time - start_time)
+
+            end_time = time.time()
+            print("train_ppo_time=", end_time - start_time)
 
             # Determine whether to use Monte Carlo or Importance Sampling and 
             # update the bahevior policy (the policy used to generate trajectories) as the current policy
-            use_mc = (r % 10 == 0)
+            use_mc = (r % self.arglist.mc_interval == 0)
             if use_mc is True:
                 self.behavior_policy = copy.copy(self._old_policy)
 
