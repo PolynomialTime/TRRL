@@ -95,7 +95,7 @@ if __name__ == '__main__':
 
     # @truncate the length of expert transition
     transitions = transitions[:arglist.transition_truncate_len]
-    print(transitions)
+    #print(transitions)
 
     obs = transitions.obs
     actions = transitions.acts
