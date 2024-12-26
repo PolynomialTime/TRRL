@@ -73,7 +73,7 @@ if __name__ == '__main__':
         n_envs=arglist.n_env,
         rng=rng,
         parallel=True,
-        max_episode_steps=128,
+        max_episode_steps=500,
     )
 
     print(arglist.env_name)
