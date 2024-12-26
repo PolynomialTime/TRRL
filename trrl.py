@@ -277,14 +277,14 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # Cache rewards of trajectories staring at (s,a) for calculating Q(s,a)
         cached_rewards_q = []
 
-
         # Monte Carlo
         if use_mc:
             if key_q not in self.trajectory_buffer_q:
                 self.trajectory_buffer_q[key_q] = []
+                # print("starting_s=", starting_s[0], "starting_a=", starting_a[0])
                 for ep_idx in range(sample_num):
                     # Monte Carlo: Sample a new trajectory
-                    tran = rollouts.generate_transitions_new(
+                    trans = rollouts.generate_transitions_new(
                         self.behavior_policy,
                         self.venv,
                         rng=np.random.default_rng(0),
@@ -293,11 +293,12 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                         starting_action=starting_a,
                         truncate=True,
                     )
-                    for i in range(len(tran)):
-                        if len(self.trajectory_buffer_q[key_q]) > self.MAX_BUFFER_SIZE_PER_KEY:
-                            self.trajectory_buffer_q[key_q].pop(0)
+                    for temp_tran in trans:
+                        if np.array_equal(temp_tran.obs[0],starting_s) and np.array_equal(temp_tran.acts[0],starting_a):
+                            self.trajectory_buffer_q[key_q].append(temp_tran)
 
-                        self.trajectory_buffer_q[key_q].append(tran[i])
+                            if len(self.trajectory_buffer_q[key_q]) > self.MAX_BUFFER_SIZE_PER_KEY:
+                                self.trajectory_buffer_q[key_q].pop(0)
 
             for trajectory in self.trajectory_buffer_q[key_q]:
                 state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
@@ -313,7 +314,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                     trajectory.obs, trajectory.acts, trajectory.next_obs, trajectory.dones
                 )
                 rwds = self._reward_net(state_th, action_th, next_state_th, done_th)
-
                 weights = self.compute_is_weights(self.behavior_policy, self._new_policy, trajectory.obs, trajectory.acts)
                 cached_rewards_q.append(torch.dot(weights * rwds, discounts[:len(rwds)]))
 
@@ -327,7 +327,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             if key_v not in self.trajectory_buffer_v:
                 self.trajectory_buffer_v[key_v] = []
                 for ep_idx in range(sample_num):
-                    tran = rollouts.generate_transitions_new(
+                    trans = rollouts.generate_transitions_new(
                         self.behavior_policy,
                         self.venv,
                         n_timesteps=n_timesteps,
@@ -336,11 +336,12 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                         starting_action=None,
                         truncate=True,
                     )
-                    for i in range(len(tran)):
-                        if len(self.trajectory_buffer_v[key_v]) > self.MAX_BUFFER_SIZE_PER_KEY:
-                            self.trajectory_buffer_v[key_v].pop(0)
+                    for temp_tran in trans:
+                        if np.array_equal(temp_tran.obs[0],starting_s) :
+                            self.trajectory_buffer_v[key_v].append(temp_tran)
 
-                        self.trajectory_buffer_v[key_v].append(tran[i])
+                            if len(self.trajectory_buffer_v[key_v]) > self.MAX_BUFFER_SIZE_PER_KEY:
+                                self.trajectory_buffer_v[key_v].pop(0)
 
             for trajectory in self.trajectory_buffer_v[key_v]:
                 state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(
