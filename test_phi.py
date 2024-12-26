@@ -81,11 +81,11 @@ if __name__ == '__main__':
 
     # load expert data
 
-    # expert = PPO.load(f"./expert_data/{arglist.env_name}")
-    # transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
+    expert = PPO.load(f"./expert_data/{arglist.env_name}")
+    transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
 
-    expert = train_expert()  # uncomment to train your own expert
-    transitions = sample_expert_transitions(expert)
+    # expert = train_expert()  # uncomment to train your own expert
+    # transitions = sample_expert_transitions(expert)
 
     mean_reward, std_reward = evaluate_policy(model=expert, env=env)
     print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
