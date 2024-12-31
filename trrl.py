@@ -385,11 +385,10 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         new_policy = PPO(
             policy=MlpPolicy,
             env=venv_with_cur_rwd_net,
-            n_steps=1024,
-            batch_size=64,
             learning_rate=0.0005,
             n_epochs=5,
             gamma=self.discount,
+            verbose=0,
             device='cpu'
         )
 
