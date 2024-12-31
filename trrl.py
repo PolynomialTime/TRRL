@@ -485,7 +485,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
             # loss backward
-            loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
+            loss = - avg_advantages + self.avg_diff_coef * avg_reward_diff + self.l2_norm_coef * l2_norm_reward_diff
 
             # print("Batch:", self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:",
             #       round(avg_advantages.item(), 5), " self.avg_diff_coef:",
@@ -493,7 +493,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             #       " self.l2_norm_coef:", round(self.l2_norm_coef.item(), 5),
             #       " l2_norm_reward_diff:", round(l2_norm_reward_diff.item(), 5))
 
-            loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
+            loss = loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
             self._rwd_opt.zero_grad()
             loss.backward()
