@@ -477,9 +477,9 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             # if l2_norm_reward_diff (-) too high, increase its coef
             if l2_norm_reward_diff > self.target_reward_l2_norm:
-                self.l2_norm_coef = self.l2_norm_coef * 2
+                self.l2_norm_coef = self.l2_norm_coef * 1.2
             elif l2_norm_reward_diff < self.target_reward_l2_norm:
-                self.l2_norm_coef = self.l2_norm_coef / 2
+                self.l2_norm_coef = self.l2_norm_coef / 1.2
 
             self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
@@ -533,7 +533,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         print("n_policy_updates_per_round:", self.n_policy_updates_per_round)
         print("n_reward_updates_per_round:", self.n_reward_updates_per_round)
 
-        save_interval = 50
+        save_interval = 1
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
             start_time = time.time()
