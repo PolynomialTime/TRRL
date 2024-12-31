@@ -499,20 +499,20 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             loss.backward()
             self._rwd_opt.step()
 
-            writer.add_scalar("Batch/loss", loss.item(), self._global_step)
-            writer.add_scalar("Batch/avg_advantages", avg_advantages.item(), self._global_step)
-            writer.add_scalar("Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
-            writer.add_scalar("Batch/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/loss", loss.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/avg_advantages", avg_advantages.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
 
             # end_batch = time.time()
             # print("batch_time=", end_batch - start_batch)
 
             self._global_step += 1
 
-        writer.add_scalar("Update_Reward/loss", loss.item(), self._global_step)
-        writer.add_scalar("Update_Reward/avg_advantages", avg_advantages.item(), self._global_step)
-        writer.add_scalar("Update_Reward/avg_reward_diff", avg_reward_diff.item(), self._global_step)
-        writer.add_scalar("Update_Reward/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/loss", loss.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/avg_advantages", avg_advantages.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
 
     # @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
@@ -525,7 +525,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # TODO: Make the initial reward net oupput <= 1
         # Iteratively train a reward function and the induced policy.
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = f"logs/{current_time}"
+        log_dir = self.arglist.env_name + "/" + f"logs/{current_time}"
 
         global writer
         writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
@@ -560,8 +560,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             distance = self.expert_kl
             reward = self.evaluate_policy
 
-            writer.add_scalar("Result/distance", distance, r)
-            writer.add_scalar("Result/reward", reward, r)
+            writer.add_scalar(self.arglist.env_name + "/Result/distance", distance, r)
+            writer.add_scalar(self.arglist.env_name + "/Result/reward", reward, r)
 
             self.logger.record("round " + str(r), 'Distance: ' + str(distance) + '. Reward: ' + str(reward))
             self.logger.dump(step=10)
