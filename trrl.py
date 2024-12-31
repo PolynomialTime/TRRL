@@ -476,15 +476,15 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             # if l2_norm_reward_diff (-) too high, increase its coef
             if l2_norm_reward_diff > self.target_reward_l2_norm:
-                self.l2_norm_coef = self.l2_norm_coef * 2
+                self.l2_norm_coef = self.l2_norm_coef * 1.2
             elif l2_norm_reward_diff < self.target_reward_l2_norm:
-                self.l2_norm_coef = self.l2_norm_coef / 2
+                self.l2_norm_coef = self.l2_norm_coef / 1.2
 
             self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
             self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
 
             # loss backward
-            loss = avg_advantages + self.avg_diff_coef * avg_reward_diff - self.l2_norm_coef * l2_norm_reward_diff
+            loss = - avg_advantages + self.avg_diff_coef * avg_reward_diff + self.l2_norm_coef * l2_norm_reward_diff
 
             # print("Batch:", self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:",
             #       round(avg_advantages.item(), 5), " self.avg_diff_coef:",
@@ -492,26 +492,26 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             #       " self.l2_norm_coef:", round(self.l2_norm_coef.item(), 5),
             #       " l2_norm_reward_diff:", round(l2_norm_reward_diff.item(), 5))
 
-            loss = - loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
+            loss = loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
             self._rwd_opt.zero_grad()
             loss.backward()
             self._rwd_opt.step()
 
-            writer.add_scalar("Batch/loss", loss.item(), self._global_step)
-            writer.add_scalar("Batch/avg_advantages", avg_advantages.item(), self._global_step)
-            writer.add_scalar("Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
-            writer.add_scalar("Batch/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/loss", loss.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/avg_advantages", avg_advantages.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+            writer.add_scalar(self.arglist.env_name + "/Batch/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
 
             # end_batch = time.time()
             # print("batch_time=", end_batch - start_batch)
 
             self._global_step += 1
 
-        writer.add_scalar("Update_Reward/loss", loss.item(), self._global_step)
-        writer.add_scalar("Update_Reward/avg_advantages", avg_advantages.item(), self._global_step)
-        writer.add_scalar("Update_Reward/avg_reward_diff", avg_reward_diff.item(), self._global_step)
-        writer.add_scalar("Update_Reward/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/loss", loss.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/avg_advantages", avg_advantages.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/avg_reward_diff", avg_reward_diff.item(), self._global_step)
+        writer.add_scalar(self.arglist.env_name +  "/Update_Reward/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
 
     # @timeit_decorator
     def train(self, n_rounds: int, callback: Optional[Callable[[int], None]] = None):
@@ -524,7 +524,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # TODO: Make the initial reward net oupput <= 1
         # Iteratively train a reward function and the induced policy.
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = f"logs/{current_time}"
+        log_dir = self.arglist.env_name + "/" + f"logs/{current_time}"
 
         global writer
         writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
@@ -532,7 +532,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         print("n_policy_updates_per_round:", self.n_policy_updates_per_round)
         print("n_reward_updates_per_round:", self.n_reward_updates_per_round)
 
-        save_interval = 50
+        save_interval = 1
         for r in tqdm.tqdm(range(0, n_rounds), desc="round"):
             # Update the policy as the one optimal for the updated reward.
             start_time = time.time()
@@ -559,8 +559,8 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             distance = self.expert_kl
             reward = self.evaluate_policy
 
-            writer.add_scalar("Result/distance", distance, r)
-            writer.add_scalar("Result/reward", reward, r)
+            writer.add_scalar(self.arglist.env_name + "/Result/distance", distance, r)
+            writer.add_scalar(self.arglist.env_name + "/Result/reward", reward, r)
 
             self.logger.record("round " + str(r), 'Distance: ' + str(distance) + '. Reward: ' + str(reward))
             self.logger.dump(step=10)
