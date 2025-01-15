@@ -272,5 +272,5 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         
         for iteration in tqdm(range(iterations), desc="Training Loop"):
         # Step 1: Generate policy trajectories
-        trajectories = generate_trajectories(policy, env, n_episodes=batch_size)
-        flat_trajectories = flatten_trajectories(trajectories)
+            trajectories = generate_trajectories(policy, env, n_episodes=batch_size)
+            flat_trajectories = flatten_trajectories(trajectories)
