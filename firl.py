@@ -3,7 +3,7 @@
 import torch
 import gym
 import numpy as np
-
+import copy
 
 from torch.autograd import grad
 
@@ -20,8 +20,7 @@ from imitation.data import rollout
 
 from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
-
-from stable_baselines3.common import policies
+from stable_baselines3.common import policies, vec_env, evaluation, preprocessing
 
 from reward_function import RwdFromRwdNetFIRL
 
@@ -34,7 +33,6 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
     def __init__(
             self,
             venv,
-            policy,
             demonstrations, 
             trajectory_length=64,
             batch_size=16,
@@ -55,7 +53,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         )
         self.demonstrations=demonstrations
         self.env = venv
-        self.policy = policy
+        self._policy = None
         self.trajectory_length = trajectory_length
         self.batch_size = batch_size
         self.divergence = divergence
@@ -67,7 +65,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         self.discriminator_lr = discriminator_lr
         self.ent_coef = ent_coef
         self.discriminator = torch.nn.Sequential(
-            torch.nn.Linear(2, 128),
+            torch.nn.Linear(self.demonstrations.obs.shape[1], 128),
             torch.nn.ReLU(),
             torch.nn.Linear(128, 1),
             torch.nn.Sigmoid(),
@@ -76,16 +74,15 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             self.discriminator.parameters(), lr=discriminator_lr
         )
         self.reward_net = torch.nn.Sequential(
-            torch.nn.Linear(2, 128),
+            torch.nn.Linear(self.demonstrations.obs.shape[1], 128),
             torch.nn.ReLU(),
             torch.nn.Linear(128, 1),
         ).to(self.device)
         self.reward_optimizer = torch.optim.Adam(self.reward_net.parameters(), lr=1e-3)
         
-
-
-    def policy(self) -> policies.BasePolicy:
-        return self.policy
+    @property
+    def policy(self):
+        return self._policy
     
     def set_demonstrations(self, demonstrations) -> None:
         self.demonstrations = demonstrations
@@ -119,9 +116,9 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         )
         new_policy.learn(self.n_policy_updates_per_round)
         self.current_iteration += 1
-        self.policy = new_policy
+        self._policy = new_policy
 
-    def train_discriminator_imitation(self, epochs=1):
+    def train_discriminator_imitation(self, epochs=100):
         """
         Train a discriminator D_\omega(s) to estimate the density ratio using the imitation package.
 
@@ -263,13 +260,49 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             start_idx += param.numel()
         self.reward_optimizer.step()
 
+    @property
+    def evaluate_policy(self) -> float:
+        """Evalute the true expected return of the learned policy under the original environment.
+
+        :return: The true expected return of the learning policy.
+        """
+        assert self.policy is not None
+
+        mean_reward, std_reward = evaluation.evaluate_policy(model=self.policy, env=self.env)
+        return mean_reward
+    
+    @property
+    # @timeit_decorator
+    def expert_kl(self) -> float:
+        """KL divergence between the expert and the current policy.
+        A Stablebaseline3-format expert policy is required.
+
+        :return: The average KL divergence between the the expert policy and the current policy
+        """
+        assert self.policy is not None
+        obs = copy.deepcopy(self.demonstrations.obs)
+        acts = copy.deepcopy(self.demonstrations.acts)
+
+        obs_th = torch.as_tensor(obs, device=self.device)
+        acts_th = torch.as_tensor(acts, device=self.device)
+
+        self.policy.policy.to(self.device)
+        self.policy.policy.to(self.device)
+
+        input_values, input_log_prob, input_entropy = self.policy.evaluate_actions(obs_th, acts_th)
+        target_values, target_log_prob, target_entropy = self.policy.evaluate_actions(obs_th, acts_th)
+
+        kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
+
+        return (float(kl_div))
+
     def train(self, n_iterations:int):
         
-        for iteration in tqdm(range(n_iterations), desc="Training Loop"):
+        for r in tqdm(range(n_iterations), desc="Training Loop"):
             # Step 1: Generate policy trajectories
             rng = np.random.default_rng(0)
             trajs = rollout.generate_trajectories(
-                                                policy=self.policy,
+                                                policy=self._policy,
                                                 venv=self.env,
                                                 sample_until=rollout.make_sample_until(min_timesteps=None, min_episodes=512),
                                                 rng=rng,
@@ -284,6 +317,11 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             # Step 3: Update the policy using PPO
             self.train_new_policy_for_new_reward()
 
+            # Save logs
+            reward = self.evaluate_policy
+            distance = self.expert_kl
+            self.logger.record("round " + str(r), 'Distance: ' + str(distance) + '. Reward: ' + str(reward))
+            self.logger.dump(step=10)
         
 
 
@@ -305,8 +343,6 @@ if __name__ == "__main__":
         max_episode_steps=500,
     )
 
-    # Define policy
-    policy = PPO("MlpPolicy", env, verbose=1)
 
     # Demonstrations
     expert = PPO.load(f"./expert_data/{arglist.env_name}")
@@ -316,11 +352,10 @@ if __name__ == "__main__":
 
     # Train reward and policy
     firl_trainer = FIRL(venv=env, 
-            policy=policy,
             demonstrations=transitions, 
             trajectory_length=64,
             batch_size=16,
             discount=arglist.discount,
             )
     
-    trained_policy, trained_reward_net = firl_trainer.train(n_iterations=100)
+    firl_trainer.train(n_iterations=arglist.n_global_rounds)
