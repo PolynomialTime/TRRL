@@ -12,6 +12,8 @@ from stable_baselines3.common import preprocessing
 from torch import nn
 import time
 
+import torch
+
 from imitation.util import networks, util
 
 from imitation.rewards.reward_function import RewardFn
@@ -248,6 +250,27 @@ class RwdFromRwdNet(RewardFn):
     ) -> np.ndarray:
         # action.reshape(state.shape[0], -1) # for test only
         return self.rwd_net.predict(state, action, next_state, done)
+        # return np.zeros(shape=state.shape[:1]) # for test only
+
+class RwdFromRwdNetFIRL(RewardFn):
+    """Use a reward network as a reward function
+    """
+
+    def __init__(self, rwd_net: RewardNet):
+        """Args:
+            rwd_net: The reward network to be used as a reward function
+        """
+        self.rwd_net = rwd_net
+
+    def __call__(
+            self,
+            state: np.ndarray,
+            action: np.ndarray,
+            next_state: np.ndarray,
+            done: np.ndarray,
+    ) -> np.ndarray:
+        # action.reshape(state.shape[0], -1) # for test only
+        return self.rwd_net(torch.tensor(state, dtype=torch.float32))
         # return np.zeros(shape=state.shape[:1]) # for test only
 
 

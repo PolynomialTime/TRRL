@@ -23,7 +23,7 @@ from stable_baselines3.ppo import MlpPolicy
 
 from stable_baselines3.common import policies
 
-from reward_function import RwdFromRwdNet
+from reward_function import RwdFromRwdNetFIRL
 
 from tqdm import tqdm
 
@@ -99,7 +99,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
 
         # setup an env with the reward being the current reward network
 
-        rwd_fn = RwdFromRwdNet(rwd_net=self.reward_net)
+        rwd_fn = RwdFromRwdNetFIRL(rwd_net=self.reward_net)
         venv_with_cur_rwd_net = RewardVecEnvWrapper(
             venv=self.env,
             reward_fn=rwd_fn
