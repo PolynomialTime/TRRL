@@ -4,54 +4,93 @@ import torch
 import gym
 import numpy as np
 
-from torch.nn import BCELoss
-from torch.optim import Adam
+
 from torch.autograd import grad
 
-from typing import Callable, Iterator, Mapping, Optional, Type, cast
+from typing import Optional
 
 from imitation.algorithms import base
-from imitation.algorithms.adversarial import DiscriminatorNet
 from imitation.algorithms import base
 from imitation.data import types
 from imitation.data import rollout
-from imitation.data.rollout import generate_trajectories, flatten_trajectories
-from imitation.data.wrappers import RolloutInfoWrapper
-from imitation.util import logger, networks, util
-from imitation.util.logger import configure
+from imitation.util import logger
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
+from imitation.util.util import make_vec_env
+from imitation.data import rollout
 
 from stable_baselines3 import PPO
 from stable_baselines3.ppo import MlpPolicy
-from stable_baselines3.common.vec_env import VecEnv
+
 from stable_baselines3.common import policies
 
-from reward_function import RwdFromRwdNet, RewardNet
+from reward_function import RwdFromRwdNet
 
 from tqdm import tqdm
 
+
+import arguments
+
 class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
     def __init__(
-            self, 
-            venv, 
+            self,
+            venv,
+            policy,
             demonstrations, 
-            logger, 
-            reward_net,
+            trajectory_length=64,
+            batch_size=16,
             custom_logger: Optional[logger.HierarchicalLogger] = None,
-            allow_variable_horizon: bool = False, 
-            divergence="kl", 
-            **kwargs):
+            device:torch.device = torch.device("cpu"),
+            allow_variable_horizon:bool = False, 
+            divergence="kl",
+            reward_lr=1e-3,
+            discriminator_lr=1e-3,
+            ent_coef = 0.01,
+            discount = 0.99,
+            **kwargs
+    ): 
         super().__init__(
             demonstrations=demonstrations,
             custom_logger=custom_logger,
             allow_variable_horizon=allow_variable_horizon,
         )
-        self.demonstrations=demonstrations,
-        self.reward_net = reward_net
+        self.demonstrations=demonstrations
+        self.env = venv
+        self.policy = policy
+        self.trajectory_length = trajectory_length
+        self.batch_size = batch_size
         self.divergence = divergence
-        self.current_iteration = 0 
+        self.current_iteration = 0
+        self.n_policy_updates_per_round=100_000
+        self.discount = discount
+        self.device = device
+        self.reward_lr = reward_lr
+        self.discriminator_lr = discriminator_lr
+        self.ent_coef = ent_coef
+        self.discriminator = torch.nn.Sequential(
+            torch.nn.Linear(2, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 1),
+            torch.nn.Sigmoid(),
+        ).to(self.device)
+        self.discriminator_optimizer = torch.optim.Adam(
+            self.discriminator.parameters(), lr=discriminator_lr
+        )
+        self.reward_net = torch.nn.Sequential(
+            torch.nn.Linear(2, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 1),
+        ).to(self.device)
+        self.reward_optimizer = torch.optim.Adam(self.reward_net.parameters(), lr=1e-3)
+        
 
-    def train_new_policy_for_new_reward(self) -> policies.BasePolicy:
+
+    def policy(self) -> policies.BasePolicy:
+        return self.policy
+    
+    def set_demonstrations(self, demonstrations) -> None:
+        self.demonstrations = demonstrations
+
+    def train_new_policy_for_new_reward(self):
         """Update the policy to maximise the rewards under the new reward function. The PPO algorithm will be used.
 
         Returns:
@@ -62,7 +101,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
 
         rwd_fn = RwdFromRwdNet(rwd_net=self.reward_net)
         venv_with_cur_rwd_net = RewardVecEnvWrapper(
-            venv=self.venv,
+            venv=self.env,
             reward_fn=rwd_fn
         )
 
@@ -75,66 +114,53 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             n_epochs=5,
             gamma=self.discount,
             verbose=0,
-            device='cpu'
+            ent_coef=0.01,
+            device=self.device
         )
-
         new_policy.learn(self.n_policy_updates_per_round)
-
         self.current_iteration += 1
+        self.policy = new_policy
 
-        return new_policy
-
-    def train_discriminator_imitation(
-        self,
-        env: VecEnv,
-        expert_trajectories: list[base.AnyTransitions],
-        policy,
-        batch_size=64,
-        lr=1e-3,
-        epochs=10,
-        device="cpu",
-    ):
+    def train_discriminator_imitation(self, epochs=1):
         """
         Train a discriminator D_\omega(s) to estimate the density ratio using the imitation package.
 
         Args:
-            env (VecEnv): Vectorized environment.
-            expert_trajectories (list): Expert trajectories as a list of `TrajectoryWithRew`.
-            policy: Policy for generating rollouts.
-            batch_size (int): Batch size for discriminator training.
-            lr (float): Learning rate for the discriminator.
             epochs (int): Number of training epochs.
-            device (str): Device for computation ('cpu' or 'cuda').
 
         Returns:
             DiscriminatorNet: The trained discriminator.
         """
-        # Extract expert states from expert trajectories
-        expert_states = np.concatenate([traj.obs for traj in expert_trajectories])
+        # Extract expert states from demonstrations
+        expert_states = self.demonstrations.obs
 
-        # Create a discriminator
-        state_dim = env.observation_space.shape[0]
-        discriminator = DiscriminatorNet(
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            use_action=False,  # We only need state-based density ratios
-        ).to(device)
-
-        optimizer = Adam(discriminator.parameters(), lr=lr)
-        criterion = BCELoss()
+        optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=self.discriminator_lr)
+        criterion = torch.nn.BCELoss()
 
         # Training loop
         for epoch in range(epochs):
             # Generate policy rollouts
-            policy_trajectories = rollout.generate_trajectories(policy, env, n_episodes=10)
-            policy_states = np.concatenate([traj.obs for traj in policy_trajectories])
+            rng = np.random.default_rng(0)
+            trajs = rollout.generate_trajectories(
+                policy=self.policy,
+                venv=self.env,
+                sample_until=rollout.make_sample_until(min_timesteps=None, min_episodes=512),
+                rng=rng,
+            )
+            trajectories = rollout.flatten_trajectories(trajs)
+            policy_states = trajectories.obs[: len(expert_states)]  # Match expert states count
 
             # Create labels: 1 for expert states, 0 for policy states
-            expert_labels = torch.ones(len(expert_states), 1, device=device)
-            policy_labels = torch.zeros(len(policy_states), 1, device=device)
+            expert_labels = torch.ones(len(expert_states), 1, device=self.device)
+            policy_labels = torch.zeros(len(policy_states), 1, device=self.device)
+
+            # Preprocess expert states
+            #expert_states_preprocessed = discriminator.preprocess(expert_states)
+            #policy_states_preprocessed = discriminator.preprocess(policy_states)
 
             # Combine data
             combined_states = np.vstack([expert_states, policy_states])
+            combined_states = torch.tensor(combined_states, dtype=torch.float32, device=self.device)
             combined_labels = torch.cat([expert_labels, policy_labels], dim=0)
 
             # Shuffle data
@@ -142,31 +168,19 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             combined_states = combined_states[indices]
             combined_labels = combined_labels[indices]
 
-            # Batch training
-            num_batches = len(combined_states) // batch_size
-            for i in range(num_batches):
-                start = i * batch_size
-                end = start + batch_size
-                batch_states = torch.tensor(
-                    combined_states[start:end], dtype=torch.float32, device=device
-                )
-                batch_labels = combined_labels[start:end]
+            # Training the discriminator
+            for _ in range(1):
+                # Forward pass through the discriminator
+                predictions = self.discriminator(combined_states)
+                loss = criterion(predictions, combined_labels)
 
-                # Forward pass
-                predictions = discriminator(batch_states)
-                loss = criterion(predictions, batch_labels)
-
-                # Backward pass
+                # Backward pass and optimization step
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-            #print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.item()}")
 
-        return discriminator
-
-
-    def estimate_density_ratio(discriminator, states, device="cpu"):
+    def estimate_density_ratio(self, states):
         """
         Estimate the density ratio \(\rho_E(s) / \rho_\theta(s)\) using the trained discriminator.
 
@@ -178,65 +192,57 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         Returns:
             torch.tensor: Density ratio values for the given states.
         """
-        states_tensor = torch.tensor(states, dtype=torch.float32, device=device)
-        d_omega = discriminator(states_tensor)
+        states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
+        d_omega = self.discriminator(states_tensor)
         density_ratios = d_omega / (1 - d_omega)
         return density_ratios
     
-    def update_reward_network(
-        self,
-        policy_trajectories,
-        reward_net,
-        density_ratios,
-        optimizer,
-        alpha,
-        device="cpu",
-    ):
+    def update_reward_network(self, policy_trajectories):
         """
         Perform gradient descent to update the reward network parameters θ.
 
         Args:
             policy_trajectories (list): List of policy trajectories as `TrajectoryWithRew`.
-            reward_net (torch.nn.Module): Reward network \( r_\theta(s) \).
-            density_ratios (np.ndarray): Precomputed density ratios \( \frac{D_\omega(s)}{1 - D_\omega(s)} \).
-            optimizer (torch.optim.Optimizer): Optimizer for updating \( \theta \).
-            alpha (float): Learning rate scaling factor.
-            device (str): Device for computation ('cpu' or 'cuda').
 
         Returns:
             torch.nn.Module: Updated reward network.
         """
         # Collect all states from policy trajectories
         all_states = torch.tensor(
-            np.concatenate([traj.obs for traj in policy_trajectories]),
+            policy_trajectories.obs,
             dtype=torch.float32,
-            device=device,
+            device=self.device,
         )
-        all_density_ratios = torch.tensor(density_ratios, dtype=torch.float32, device=device)
+        self.train_discriminator_imitation()
+        density_ratios = self.estimate_density_ratio(all_states)
+        all_density_ratios = torch.tensor(density_ratios, dtype=torch.float32, device=self.device)
 
-        T = len(policy_trajectories[0].obs)  # Assume all trajectories have the same length
-
+        T = self.demonstrations.obs.shape[0]  # Assume all trajectories have the same length
         # Initialize accumulators for expectations
-        grad_r_sum = torch.zeros_like(next(reward_net.parameters()), device=device)
-        grad_r_mean = torch.zeros_like(next(reward_net.parameters()), device=device)
+        total_params = sum(p.numel() for p in self.reward_net.parameters())
+        grad_r_sum = torch.zeros(total_params, device=self.device)
+        grad_r_mean = torch.zeros(total_params, device=self.device)
         density_sum = 0.0
 
         # Compute gradient terms for the formula
         for i, s_t in enumerate(all_states):
-            s_t = s_t.unsqueeze(0)  # Add batch dimension
             # Forward pass: compute reward
-            r_t = reward_net(s_t)
+            r_t = self.reward_net(s_t.unsqueeze(0))  # Add batch dimension
+            
             # Compute reward gradient wrt reward network parameters
             grad_r = grad(
-                r_t.sum(), reward_net.parameters(), retain_graph=True, create_graph=True
+                r_t.sum(), self.reward_net.parameters(), retain_graph=True, create_graph=True
             )
-            grad_r_combined = torch.cat([g.view(-1) for g in grad_r])
+            grad_r_combined = torch.cat([g.view(-1) for g in grad_r])  # Flatten gradients
 
             # Density ratio: Dω(s) / (1 - Dω(s))
             d_ratio = all_density_ratios[i]
-
+            
+            # Reshape d_ratio for broadcasting
+            d_ratio_expanded = d_ratio.view(1)  # Shape [1], broadcasts correctly
+            
             # Accumulate terms
-            grad_r_sum += -d_ratio * grad_r_combined
+            grad_r_sum += -d_ratio_expanded * grad_r_combined
             density_sum += -d_ratio
             grad_r_mean += grad_r_combined
 
@@ -246,31 +252,75 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         grad_r_mean /= T
 
         # Compute the gradient using the formula
-        gradient = (1 / (alpha * T)) * (grad_r_sum - density_sum * grad_r_mean)
+        gradient = (1 / (self.ent_coef * T)) * (grad_r_sum - density_sum * grad_r_mean)
 
         # Update reward network parameters using optimizer
-        optimizer.zero_grad()
+        self.reward_optimizer.zero_grad()
         start_idx = 0
-        for param in reward_net.parameters():
+        for param in self.reward_net.parameters():
             param_grad = gradient[start_idx : start_idx + param.numel()].view(param.shape)
             param.grad = param_grad
             start_idx += param.numel()
-        optimizer.step()
+        self.reward_optimizer.step()
 
-        return reward_net    
-
-    def train(self,
-              env,
-              reward_net,
-              policy,
-              iterations,
-              reward_optimizer,
-              alpha,
-              batch_size=100,
-              device="cpu",
-              trajectory_length=10):
+    def train(self, n_iterations:int):
         
-        for iteration in tqdm(range(iterations), desc="Training Loop"):
-        # Step 1: Generate policy trajectories
-            trajectories = generate_trajectories(policy, env, n_episodes=batch_size)
-            flat_trajectories = flatten_trajectories(trajectories)
+        for iteration in tqdm(range(n_iterations), desc="Training Loop"):
+            # Step 1: Generate policy trajectories
+            rng = np.random.default_rng(0)
+            trajs = rollout.generate_trajectories(
+                                                policy=self.policy,
+                                                venv=self.env,
+                                                sample_until=rollout.make_sample_until(min_timesteps=None, min_episodes=512),
+                                                rng=rng,
+            )
+            trajectories = rollout.flatten_trajectories(trajs)
+            trajectories = trajectories[:arglist.transition_truncate_len]
+            #print(trajectories)
+
+            # Step 2: Update the reward network
+            self.update_reward_network(policy_trajectories=trajectories)
+
+            # Step 3: Update the policy using PPO
+            self.train_new_policy_for_new_reward()
+
+        
+
+
+    
+
+# Example usage
+if __name__ == "__main__":
+
+    arglist = arguments.parse_args()
+
+    # Create environment
+    rng = np.random.default_rng(0)
+
+    env = make_vec_env(
+        arglist.env_name,
+        n_envs=arglist.n_env,
+        rng=rng,
+        parallel=True,
+        max_episode_steps=500,
+    )
+
+    # Define policy
+    policy = PPO("MlpPolicy", env, verbose=1)
+
+    # Demonstrations
+    expert = PPO.load(f"./expert_data/{arglist.env_name}")
+    transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
+    transitions = transitions[:arglist.transition_truncate_len]
+
+
+    # Train reward and policy
+    firl_trainer = FIRL(venv=env, 
+            policy=policy,
+            demonstrations=transitions, 
+            trajectory_length=64,
+            batch_size=16,
+            discount=arglist.discount,
+            )
+    
+    trained_policy, trained_reward_net = firl_trainer.train(n_iterations=100)
