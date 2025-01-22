@@ -10,9 +10,6 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common import preprocessing
 from torch import nn
-import time
-
-import torch
 
 from imitation.util import networks, util
 
@@ -270,7 +267,7 @@ class RwdFromRwdNetFIRL(RewardFn):
             done: np.ndarray,
     ) -> np.ndarray:
         # action.reshape(state.shape[0], -1) # for test only
-        return self.rwd_net(torch.tensor(state, dtype=torch.float32))
+        return self.rwd_net(th.tensor(state)).cpu().detach().numpy().flatten()
         # return np.zeros(shape=state.shape[:1]) # for test only
 
 
