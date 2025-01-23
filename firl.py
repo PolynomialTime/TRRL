@@ -26,6 +26,10 @@ from reward_function import RwdFromRwdNetFIRL
 
 from tqdm import tqdm
 
+import datetime
+import os
+import torch.utils.tensorboard as tb
+
 
 import arguments
 
@@ -299,6 +303,12 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         return (float(kl_div))
 
     def train(self, n_iterations:int):
+
+        current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = self.arglist.env_name + "/firl/" + f"logs/{current_time}"
+
+        global writer
+        writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
         
         for r in tqdm(range(n_iterations), desc="Training Loop"):
             # Step 1: Generate policy trajectories
@@ -322,8 +332,20 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             # Save logs
             reward = self.evaluate_policy
             distance = self.expert_kl
+            
+            writer.add_scalar("Result/distance", distance, r)
+            writer.add_scalar("Result/reward", reward, r)
+
             self.logger.record("round " + str(r), 'Distance: ' + str(distance) + '. Reward: ' + str(reward))
-            self.logger.dump(step=10)
+            self.logger.dump(step=1)
+
+            save_interval = 1
+            if r % save_interval == 0:
+                save_path = os.path.join(log_dir, f"reward_net_state_dict_round_{r}.pth")
+                torch.save(self._reward_net.state_dict(), save_path)
+                print(f"Saved reward net state dict at {save_path}")
+        
+        writer.close()
         
 
 
