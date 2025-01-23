@@ -344,7 +344,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             save_interval = 1
             if r % save_interval == 0:
                 save_path = os.path.join(log_dir, f"reward_net_state_dict_round_{r}.pth")
-                torch.save(self._reward_net.state_dict(), save_path)
+                torch.save(self.reward_net.state_dict(), save_path)
                 print(f"Saved reward net state dict at {save_path}")
         
         writer.close()
