@@ -307,7 +307,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
     def train(self, n_iterations:int):
 
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = self.arglist.env_name + "/firl/" + f"logs/{current_time}"
+        log_dir = self.arglist.env_name + "/firl/" + str(self.arglist.transition_truncate_len) + "/" + f"logs/{current_time}"
 
         global writer
         writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
