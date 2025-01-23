@@ -289,8 +289,8 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         self.policy.policy.to(self.device)
         self.policy.policy.to(self.device)
 
-        input_values, input_log_prob, input_entropy = self.policy.evaluate_actions(obs_th, acts_th)
-        target_values, target_log_prob, target_entropy = self.policy.evaluate_actions(obs_th, acts_th)
+        input_values, input_log_prob, input_entropy = self.policy.policy.evaluate_actions(obs_th, acts_th)
+        target_values, target_log_prob, target_entropy = self.policy.policy.evaluate_actions(obs_th, acts_th)
 
         kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
 
