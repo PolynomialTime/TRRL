@@ -33,6 +33,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
     def __init__(
             self,
             venv,
+            expert_policy,
             demonstrations, 
             trajectory_length=64,
             batch_size=16,
@@ -51,14 +52,15 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger=custom_logger,
             allow_variable_horizon=allow_variable_horizon,
         )
-        self.demonstrations=demonstrations
+        self.demonstrations = demonstrations
+        self.expert_policy = expert_policy
         self.env = venv
         self._policy = None
         self.trajectory_length = trajectory_length
         self.batch_size = batch_size
         self.divergence = divergence
         self.current_iteration = 0
-        self.n_policy_updates_per_round=100_000
+        self.n_policy_updates_per_round = 100_000
         self.discount = discount
         self.device = device
         self.reward_lr = reward_lr
@@ -290,7 +292,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         self.policy.policy.to(self.device)
 
         input_values, input_log_prob, input_entropy = self.policy.policy.evaluate_actions(obs_th, acts_th)
-        target_values, target_log_prob, target_entropy = self.policy.policy.evaluate_actions(obs_th, acts_th)
+        target_values, target_log_prob, target_entropy = self.expert_policy.policy.evaluate_actions(obs_th, acts_th)
 
         kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
 
@@ -351,7 +353,8 @@ if __name__ == "__main__":
 
 
     # Train reward and policy
-    firl_trainer = FIRL(venv=env, 
+    firl_trainer = FIRL(venv=env,
+            expert_policy = expert,
             demonstrations=transitions, 
             trajectory_length=64,
             batch_size=16,
