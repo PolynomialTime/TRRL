@@ -49,6 +49,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             discriminator_lr=1e-3,
             ent_coef = 0.01,
             discount = 0.99,
+            arglist = None,
             **kwargs
     ): 
         super().__init__(
@@ -56,6 +57,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             custom_logger=custom_logger,
             allow_variable_horizon=allow_variable_horizon,
         )
+        self.arglist = arglist
         self.demonstrations = demonstrations
         self.expert_policy = expert_policy
         self.env = venv
@@ -320,7 +322,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
                                                 rng=rng,
             )
             trajectories = rollout.flatten_trajectories(trajs)
-            trajectories = trajectories[:arglist.transition_truncate_len]
+            trajectories = trajectories[:self.arglist.transition_truncate_len]
             #print(trajectories)
 
             # Step 2: Update the reward network
@@ -381,6 +383,7 @@ if __name__ == "__main__":
             trajectory_length=64,
             batch_size=16,
             discount=arglist.discount,
+            arglist=arglist
             )
     
     firl_trainer.train(n_iterations=arglist.n_global_rounds)
