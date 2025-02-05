@@ -7,7 +7,7 @@ time_now = time.strftime('%Y_%m_%d_%H:%M')
 # python3 main.py --device gpu --n_episodes_adv_fn_est 32 --n_timesteps_adv_fn_est 32 --env_name FrozenLake-v1 --n_env 8
 
 def parse_args():
-    parser = argparse.ArgumentParser("Trust Region Inverse Reinforcement Learning")
+    parser = argparse.ArgumentParser("Proximal Inverse Reward Optimization")
 
     # system info
     parser.add_argument("--time", type=str, default=time_now, help="system time")
@@ -15,7 +15,7 @@ def parse_args():
 
     # environment
     # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3, FrozenLake-v1, CartPole-v1，MountainCar-v0
-    parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
+    parser.add_argument("--env_name", type=str, default="Acrobot-v1", help="the environment")
     parser.add_argument("--n_env", type=int, default=8, help="number of parallel envs in venvs")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
@@ -34,7 +34,7 @@ def parse_args():
 
     # adaptive coef adjustment paremeters
     parser.add_argument("--target_reward_diff", type=float, default=0.005,
-                        help="threshold for dynamic adjustment of Lagrange multiplier for average reward difference.")
+                        help="threshold for dynamic adjustment of Lagrange multiplier for soft Bellan error.")
     parser.add_argument("--target_reward_l2_norm", type=float, default=0.1,
                         help="threshold for dynamic adjustment of Lagrange multiplier for l2 norm of reward difference.")
 

@@ -1,4 +1,4 @@
-"""This is the runner of using TRRL to infer the reward functions and the optimal policy
+"""This is the runner of using PIRO to infer the reward functions and the optimal policy
 
 """
 import multiprocessing as mp
@@ -17,7 +17,7 @@ from imitation.util.util import make_vec_env
 import gymnasium as gym
 
 from reward_function import BasicRewardNet
-from trrl import TRRL
+from trrl import PIRO
 from imitation.data import rollout
 
 from typing import (
@@ -80,14 +80,14 @@ if __name__ == '__main__':
 
     print(type(env))
 
+    # TODO: If the environment is running for the first time (i.e., no expert data is present in the folder), please execute the following code first.
+    # expert = train_expert()  # uncomment to train your own expert
+    # transitions = sample_expert_transitions(expert)
+
     # load expert data
 
     expert = PPO.load(f"./expert_data/{arglist.env_name}")
     transitions = torch.load(f"./expert_data/transitions_{arglist.env_name}.npy")
-
-    # TODO: If the environment is running for the first time (i.e., no expert data is present in the folder), please execute the following code first.
-    # expert = train_expert()  # uncomment to train your own expert
-    # transitions = sample_expert_transitions(expert)
 
     mean_reward, std_reward = evaluate_policy(model=expert, env=env)
     print("Average reward of the expert is evaluated at: " + str(mean_reward) + ',' + str(std_reward) + '.')
@@ -124,7 +124,7 @@ if __name__ == '__main__':
         print("The intended device is not supported, run on CPU instead.")
 
     # mian func
-    trrl_trainer = TRRL(
+    trrl_trainer = PIRO(
         venv=env,
         expert_policy=expert,
         demonstrations=transitions,

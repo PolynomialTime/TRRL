@@ -1,4 +1,4 @@
-"""Trust Region Reward Learning (TRRL).
+"""Proximal Inverse Reward Optimiza (PIRO).
 
 Trains a reward function whose induced policy is monotonically improved towards the expert policy.
 """
@@ -41,14 +41,13 @@ def timeit_decorator(func):
         result = func(*args, **kwargs)
         end_time = time.time()
         temp_str = str(func.__code__)
-        # print(f"Function {temp_str[-30:]} {func.__name__}  executed in {end_time - start_time} seconds")
         return result
 
     return wrapper
 
 
-class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
-    """Trust Region Reward Learning (TRRL).
+class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
+    """Trust Region Reward Learning (PIRO).
 
         Trains a reward function whose induced policy is monotonically improved towards the expert policy.
     """
@@ -83,7 +82,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             **kwargs,
     ):
         """
-        Builds TRRL.
+        Builds PIRO.
 
         :param venv: The vectorized environment to train on.
         :param expert_policy: The expert polocy in the form of stablebaseline3 policies. This is used to
@@ -94,7 +93,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :param custom_logger: Where to log to; if None (default), creates a new logger.
         :param reward_net: reward network.
         :param discount: discount factor. A value between 0 and 1.
-        :param avg_diff_coef: coefficient for `r_old - r_new`.
+        :param avg_diff_coef: coefficient for soft Bellman error.
         :param l2_norm_coef: coefficient for the max difference between r_new and r_old.
             In the practical algorithm, the max difference is replaced
             by an average distance for the differentiability.
@@ -269,7 +268,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
                               torch.arange(0, n_timesteps, device=self.device))
 
         sample_num = math.ceil(n_episodes / self.arglist.n_env)
-        #print("n_episodes:",n_episodes,"self.n_env:",self.arglist.n_env,"sample_num:",sample_num)
+        
         # Starting estimating Q(s,a)
         # Store trajectories staring at (s,a). We skip MC sampling for previously encounered (s,a) and will use the trajectories stored in the buffer.
         key_q = ((starting_s,) if isinstance(starting_s, (int, np.integer)) else tuple(starting_s),
@@ -281,7 +280,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         if use_mc:
             if key_q not in self.trajectory_buffer_q:
                 self.trajectory_buffer_q[key_q] = []
-                # print("starting_s=", starting_s[0], "starting_a=", starting_a[0])
                 for ep_idx in range(sample_num):
                     # Monte Carlo: Sample a new trajectory
                     trans = rollouts.generate_transitions_new(
@@ -412,7 +410,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
         Returns:
             The updated reward network
         """
-        # TODO: consider optimise a reward network from scratch
+        # TODO (optional): consider optimise a reward network from scratch
         # initialise the optimiser for the reward net
         # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing GD.
         loss = torch.zeros(1).to(self.device)
@@ -451,18 +449,16 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             if self._old_reward_net is None:
                 reward_diff = self._reward_net(state_th, action_th, next_state_th, done_th) - torch.ones(1).to(
                     self.device)
-                # print("self._old_reward_net is None")
+
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
                 # in the first episode, diff=0 because the old reward equals the new one
                 reward_diff = (self._reward_net(state_th, action_th, next_state_th, done_th) -
                                self._old_reward_net.predict_th(obs, acts, next_obs, dones).to(self.device))
 
-            # TODO: two penalties should be calculated over all state-action pairs
+            # TODO (optional):  calculate over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
             l2_norm_reward_diff = torch.norm(reward_diff, p=2)
-
-            print("avg_reward_diff=", avg_reward_diff, "l2_norm_reward_diff=", l2_norm_reward_diff)
 
             # adaptive coef adjustment paremeters
             # if avg_diff_coef (+) too high, reduce its coef
@@ -486,12 +482,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # loss backward
             loss = - avg_advantages + self.avg_diff_coef * avg_reward_diff + self.l2_norm_coef * l2_norm_reward_diff
 
-            # print("Batch:", self._global_step, " loss:", round(loss.item(), 5), " avg_advantages:",
-            #       round(avg_advantages.item(), 5), " self.avg_diff_coef:",
-            #       round(self.avg_diff_coef.item(), 5), " avg_reward_diff:", round(avg_reward_diff.item(), 5),
-            #       " self.l2_norm_coef:", round(self.l2_norm_coef.item(), 5),
-            #       " l2_norm_reward_diff:", round(l2_norm_reward_diff.item(), 5))
-
             loss = loss * (self.demo_batch_size / self.demonstrations.obs.shape[0])
 
             self._rwd_opt.zero_grad()
@@ -503,8 +493,6 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             writer.add_scalar("Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
             writer.add_scalar("Batch/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
 
-            # end_batch = time.time()
-            # print("batch_time=", end_batch - start_batch)
 
             self._global_step += 1
 
@@ -521,7 +509,7 @@ class TRRL(algo_base.DemonstrationAlgorithm[types.Transitions]):
             callback: A function called at the end of every round which takes in a
                 single argument, the round number.
         """
-        # TODO: Make the initial reward net oupput <= 1
+        # TODO (optional): Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         log_dir = self.arglist.env_name + "/" + f"logs/{current_time}"

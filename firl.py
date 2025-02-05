@@ -137,7 +137,8 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
             DiscriminatorNet: The trained discriminator.
         """
         # Extract expert states from demonstrations
-        expert_states = self.demonstrations.obs
+        expert_states = torch.tensor(self.demonstrations.obs, dtype=torch.float32, device=self.device)
+        
 
         optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=self.discriminator_lr)
         criterion = torch.nn.BCELoss()
@@ -153,11 +154,11 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
                 rng=rng,
             )
             trajectories = rollout.flatten_trajectories(trajs)
-            policy_states = trajectories.obs[: len(expert_states)]  # Match expert states count
+            policy_states = torch.tensor(trajectories.obs[: len(expert_states)], dtype=torch.float32, device=self.device)  # Match expert states count
 
             # Create labels: 1 for expert states, 0 for policy states
-            expert_labels = torch.ones(len(expert_states), 1, device=self.device)
-            policy_labels = torch.zeros(len(policy_states), 1, device=self.device)
+            expert_labels = torch.ones(len(expert_states), 1, dtype=torch.float32, device=self.device)
+            policy_labels = torch.zeros(len(policy_states), 1, dtype=torch.float32, device=self.device)
 
             # Preprocess expert states
             #expert_states_preprocessed = discriminator.preprocess(expert_states)
@@ -165,13 +166,14 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
 
             # Combine data
             combined_states = np.vstack([expert_states, policy_states])
-            combined_states = torch.tensor(combined_states, dtype=torch.float32, device=self.device)
+            combined_states = torch.tensor(combined_states, device=self.device)
             combined_labels = torch.cat([expert_labels, policy_labels], dim=0)
 
             # Shuffle data
             indices = np.random.permutation(len(combined_states))
             combined_states = combined_states[indices]
             combined_labels = combined_labels[indices]
+            
 
             # Training the discriminator
             for _ in range(1):
@@ -197,7 +199,7 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         Returns:
             torch.tensor: Density ratio values for the given states.
         """
-        states_tensor = torch.tensor(states, dtype=torch.float32, device=self.device)
+        states_tensor = torch.tensor(states, device=self.device)
         d_omega = self.discriminator(states_tensor)
         density_ratios = d_omega / (1 - d_omega)
         return density_ratios
@@ -215,12 +217,11 @@ class FIRL(base.DemonstrationAlgorithm[types.Transitions]):
         # Collect all states from policy trajectories
         all_states = torch.tensor(
             policy_trajectories.obs,
-            dtype=torch.float32,
             device=self.device,
         )
         self.train_discriminator_imitation()
         density_ratios = self.estimate_density_ratio(all_states)
-        all_density_ratios = torch.tensor(density_ratios, dtype=torch.float32, device=self.device)
+        all_density_ratios = torch.tensor(density_ratios, device=self.device)
 
         T = self.demonstrations.obs.shape[0]  # Assume all trajectories have the same length
         # Initialize accumulators for expectations
