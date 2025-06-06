@@ -5,7 +5,7 @@ import multiprocessing as mp
 import arguments
 import torch
 import numpy as np
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.ppo import policies, MlpPolicy
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -17,7 +17,7 @@ from imitation.util.util import make_vec_env
 import gymnasium as gym
 
 from reward_function import BasicRewardNet
-from trrl import PIRO
+from piro import PIRO
 from imitation.data import rollout
 
 from typing import (
@@ -28,7 +28,7 @@ from typing import (
 def train_expert():
     # note: use `download_expert` instead to download a pretrained, competent expert
     print("Training an expert.")
-    expert = PPO(
+    expert = SAC(
         policy=MlpPolicy,
         env=env,
         seed=0,
@@ -140,8 +140,6 @@ if __name__ == '__main__':
         device=DEVICE,
         n_policy_updates_per_round=arglist.n_policy_updates_per_round,
         n_reward_updates_per_round=arglist.n_reward_updates_per_round,
-        n_episodes_adv_fn_est=arglist.n_episodes_adv_fn_est,
-        n_timesteps_adv_fn_est=arglist.n_timesteps_adv_fn_est,
         observation_space=observation_space,
         action_space=action_space,
         arglist=arglist

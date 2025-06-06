@@ -384,8 +384,8 @@ def generate_trajectories(
         venv: VecEnv,
         sample_until: GenTrajTerminationFn,
         rng: np.random.Generator,
-        starting_state: None,
-        starting_action: None,
+        starting_state = None,
+        starting_action = None,
         *,
         deterministic_policy: bool = False,
 ) -> Sequence[types.TrajectoryWithRew]:
@@ -706,8 +706,8 @@ def generate_transitions_new(
         n_timesteps: int,
         rng: np.random.Generator,
         *,
-        starting_state: None,
-        starting_action: None,
+        starting_state = None,
+        starting_action = None,
         truncate: bool = True,
         **kwargs: Any,
 ) -> list:
