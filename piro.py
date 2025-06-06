@@ -19,6 +19,8 @@ import copy
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.ppo import MlpPolicy
 from stable_baselines3.common import policies, vec_env, evaluation, preprocessing
+from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.sac.policies   import SACPolicy
 
 from imitation.algorithms import base as algo_base
 from imitation.algorithms import base
@@ -145,9 +147,8 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.trajectory_buffer_q = {}
         self.MAX_BUFFER_SIZE_PER_KEY = 400
         self.behavior_policy = None
-
+          
     @property
-    # @timeit_decorator
     def expert_kl(self) -> float:
         """KL divergence between the expert and the current policy.
         A Stablebaseline3-format expert policy is required.
@@ -155,23 +156,47 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :return: The average KL divergence between the the expert policy and the current policy
         """
         assert self._old_policy is not None
-        assert isinstance(self._old_policy.policy, policies.ActorCriticPolicy)
-        assert isinstance(self._expert_policy.policy, policies.ActorCriticPolicy)
+        # assert isinstance(self._old_policy.policy, policies.ActorCriticPolicy)
+        # assert isinstance(self._expert_policy.policy, policies.ActorCriticPolicy)
+
+        # copy demo data
         obs = copy.deepcopy(self.demonstrations.obs)
         acts = copy.deepcopy(self.demonstrations.acts)
 
         obs_th = torch.as_tensor(obs, device=self.device)
         acts_th = torch.as_tensor(acts, device=self.device)
 
+        # move both policies to device
         self._old_policy.policy.to(self.device)
         self._expert_policy.policy.to(self.device)
 
-        input_values, input_log_prob, input_entropy = self._old_policy.policy.evaluate_actions(obs_th, acts_th)
-        target_values, target_log_prob, target_entropy = self._expert_policy.policy.evaluate_actions(obs_th, acts_th)
+        old_pol    = self._old_policy.policy
+        expert_pol = self._expert_policy.policy
 
-        kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
+        if isinstance(old_pol, ActorCriticPolicy) and isinstance(expert_pol, ActorCriticPolicy):
+            # for PPO
+            _, old_log_prob, _ = old_pol.evaluate_actions(obs_th, acts_th)
+            _, new_log_prob, _ = expert_pol.evaluate_actions(obs_th, acts_th)
+            kl_div = torch.mean(torch.exp(new_log_prob) * (new_log_prob - old_log_prob))
 
-        return (float(kl_div))
+        elif isinstance(old_pol, SACPolicy) and isinstance(expert_pol, SACPolicy):
+            with torch.no_grad():
+                # old policy: get distribution params ⇒ log_prob
+                mean_old, log_std_old, extras_old = old_pol.actor.get_action_dist_params(obs_th)
+                _, old_log_prob = old_pol.actor.action_dist.log_prob_from_params(mean_old, log_std_old, **extras_old)
+
+                mean_new, log_std_new, extras_new = expert_pol.actor.get_action_dist_params(obs_th)
+                _, new_log_prob = expert_pol.actor.action_dist.log_prob_from_params(mean_new, log_std_new, **extras_new)
+
+            kl_div = torch.mean(torch.exp(new_log_prob) * (new_log_prob - old_log_prob))
+
+        else:
+            raise ValueError(
+                f"Unsupported policy type: {old_pol.__class__.__name__} / {expert_pol.__class__.__name__}."
+            )
+
+        return float(kl_div)
+
 
     @property
     def evaluate_policy(self) -> float:
@@ -180,7 +205,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         :return: The true expected return of the learning policy.
         """
         assert self._old_policy is not None
-        assert isinstance(self._old_policy.policy, policies.ActorCriticPolicy)
+        #assert isinstance(self._old_policy.policy, policies.ActorCriticPolicy)
 
         mean_reward, std_reward = evaluation.evaluate_policy(model=self._old_policy, env=self.venv)
         return mean_reward
@@ -222,14 +247,30 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             weights: The computed IS weights.
         """
         observations = torch.as_tensor(observations, device=self.device)
-        actions = torch.as_tensor(actions, device=self.device)
+        actions      = torch.as_tensor(actions, device=self.device)
 
-        old_prob = behavior_policy.policy.evaluate_actions(observations, actions)[1]
-        new_prob = new_policy.policy.evaluate_actions(observations, actions)[1]
+        old_pol    = behavior_policy.policy
+        new_pol    = new_policy.policy
 
-        weights = torch.exp(new_prob - old_prob)
+        if isinstance(old_pol, ActorCriticPolicy) and isinstance(new_pol, ActorCriticPolicy):
+            # for PPO
+            old_log_prob = old_pol.evaluate_actions(observations, actions)[1]
+            new_log_prob = new_pol.evaluate_actions(observations, actions)[1]
+        elif isinstance(old_pol, SACPolicy) and isinstance(new_pol, SACPolicy):
+            # for SAC
+            with torch.no_grad():
+                latent_old, _ = old_pol._get_latent(observations)
+                dist_old      = old_pol._get_action_dist_from_latent(latent_old)
+                old_log_prob  = dist_old.log_prob(actions).sum(dim=-1)
+
+                latent_new, _ = new_pol._get_latent(observations)
+                dist_new      = new_pol._get_action_dist_from_latent(latent_new)
+                new_log_prob  = dist_new.log_prob(actions).sum(dim=-1)
+        else:
+            raise ValueError("Unsupported policy type for IS weights")
+
+        weights = torch.exp(new_log_prob - old_log_prob)
         return weights
-    
 
     def reward_of_sample_traj_old_policy_cur_reward(self, starting_state: np.ndarray, n_timesteps: int, n_episodes: int) -> torch.Tensor:
         """Sample trajectories under the old policy and the current reward network

@@ -87,7 +87,7 @@ if __name__ == '__main__':    # make environment
         arglist.env_name,
         n_envs=arglist.n_env,
         rng=rng,
-        parallel=True,
+        #parallel=True,
         #max_episode_steps=500,
     )
 
