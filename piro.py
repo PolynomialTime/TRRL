@@ -293,19 +293,29 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         _ = venv_with_cur_rwd_net.reset()
 
-        new_policy = PPO(
-            policy=MlpPolicy,
-            env=venv_with_cur_rwd_net,
-            learning_rate=0.0005,
-            n_epochs=5,
-            gamma=self.discount,
-            ent_coef=self.ent_coef,
-            verbose=0,
-            device='cpu'
-        )
+        if self.arglist.policy_model == 'PPO':
+            new_policy = PPO(
+                policy=MlpPolicy,
+                env=venv_with_cur_rwd_net,
+                learning_rate=0.0005,
+                n_epochs=5,
+                gamma=self.discount,
+                ent_coef=self.ent_coef,
+                verbose=0,
+                device='cpu'
+            )
+        elif self.arglist.policy_model == 'SAC':
+            new_policy = SAC(
+                policy=MlpPolicy,
+                env=venv_with_cur_rwd_net,
+                learning_rate=0.0005,
+                gamma=self.discount,
+                ent_coef=self.ent_coef,
+                verbose=0,
+                device='cpu'
+            )
 
         new_policy.learn(self.n_policy_updates_per_round)
-
         self._new_policy = new_policy
         self.current_iteration += 1
 
