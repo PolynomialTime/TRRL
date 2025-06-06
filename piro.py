@@ -177,8 +177,8 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             # for PPO
             _, old_log_prob, _ = old_pol.evaluate_actions(obs_th, acts_th)
             _, new_log_prob, _ = expert_pol.evaluate_actions(obs_th, acts_th)
-            kl_div = torch.mean(torch.exp(new_log_prob) * (new_log_prob - old_log_prob))
-
+            kl_div = torch.mean(torch.dot(torch.exp(new_log_prob) , (new_log_prob - old_log_prob)))
+            #kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
         elif isinstance(old_pol, SACPolicy) and isinstance(expert_pol, SACPolicy):
             with torch.no_grad():
                 # old policy: get distribution params ⇒ log_prob
@@ -188,7 +188,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 mean_new, log_std_new, extras_new = expert_pol.actor.get_action_dist_params(obs_th)
                 _, new_log_prob = expert_pol.actor.action_dist.log_prob_from_params(mean_new, log_std_new, **extras_new)
 
-            kl_div = torch.mean(torch.exp(new_log_prob) * (new_log_prob - old_log_prob))
+            kl_div = torch.mean(torch.dot(torch.exp(new_log_prob), (new_log_prob - old_log_prob)))
 
         else:
             raise ValueError(
