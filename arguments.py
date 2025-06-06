@@ -21,6 +21,7 @@ def parse_args():
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
     parser.add_argument("--demo_batch_size", type=int, default=64, help="number of demos to generate")
     parser.add_argument("--policy_model", type=str, default='SAC', help="PPO or SAC for the policy model")
+    parser.add_argument("--seed", type=int, default=0, help="random seed")
 
     # core training parameters
     parser.add_argument("--max_epoch", type=int, default=100, help="maximum epoch length")

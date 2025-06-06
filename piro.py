@@ -306,7 +306,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             )
         elif self.arglist.policy_model == 'SAC':
             new_policy = SAC(
-                policy=MlpPolicy,
+                policy="MlpPolicy",
                 env=venv_with_cur_rwd_net,
                 learning_rate=0.0005,
                 gamma=self.discount,
@@ -432,11 +432,10 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             n_rounds: An upper bound on the iterations of training.
             callback: A function called at the end of every round which takes in a
                 single argument, the round number.
-        """
-        # TODO (optional): Make the initial reward net oupput <= 1 
+        """        # TODO (optional): Make the initial reward net oupput <= 1 
         # Iteratively train a reward function and the induced policy.
         current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = self.arglist.env_name + "/" + f"logs/{current_time}"
+        log_dir = self.arglist.save_results_dir + f"logs/{current_time}"
 
         global writer
         writer = tb.SummaryWriter(log_dir=log_dir, flush_secs=1)
