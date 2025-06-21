@@ -46,15 +46,15 @@ def train_expert():
             policy="MlpPolicy",
             env=env,
             seed=0,
-            batch_size=64,
+            batch_size=128,
             ent_coef=arglist.ent_coef,
             learning_rate=arglist.lr,
             gamma=arglist.discount
         )
     else:
         raise ValueError(f"Unsupported policy model: {arglist.policy_model}")
-    
-    expert.learn(100_000)  # Note: change this to 100_000 to train a decent expert.
+
+    expert.learn(1000_000, progress_bar=True)  # Note: change this to 100_000 to train a decent expert.
     expert.save(f"./expert_data/{arglist.env_name}")
     return expert
 

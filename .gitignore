@@ -101,7 +101,7 @@ venv.bak/
 
 # Project specific
 expert_data/
-oldexpert/
+ppo_expert/
 output/
 
 para.md

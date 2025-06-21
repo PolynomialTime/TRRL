@@ -122,7 +122,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.l2_norm_upper_bound = l2_norm_upper_bound
         self.target_reward_diff = target_reward_diff
         self.target_reward_l2_norm = target_reward_l2_norm
-        # self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)
+        # self.expert_state_action_density = self.est_expert_demo_state_action_density(demonstrations)        
         self.venv = venv
         self.device = device
         self._expert_policy = expert_policy
@@ -135,7 +135,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         )
         self._new_policy = None  # Initialize _new_policy
         self._reward_net = reward_net.to(device)
-        self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters(), lr=0.0005)
+        self._rwd_opt = self._rwd_opt_cls(self._reward_net.parameters(), lr=self.arglist.lr)
         self.discount = discount
         self.n_policy_updates_per_round = n_policy_updates_per_round
         self.n_reward_updates_per_round = n_reward_updates_per_round
@@ -145,7 +145,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         self.current_iteration = 0  # 当前策略迭代次数
         self.trajectory_buffer_v = {}
         self.trajectory_buffer_q = {}
-        self.MAX_BUFFER_SIZE_PER_KEY = 400
+        self.MAX_BUFFER_SIZE_PER_KEY = self.arglist.buffer_size
         self.behavior_policy = None
           
     @property
@@ -175,10 +175,17 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
         if isinstance(old_pol, ActorCriticPolicy) and isinstance(expert_pol, ActorCriticPolicy):
             # for PPO
-            _, old_log_prob, _ = old_pol.evaluate_actions(obs_th, acts_th)
-            _, new_log_prob, _ = expert_pol.evaluate_actions(obs_th, acts_th)
-            kl_div = torch.mean(torch.dot(torch.exp(new_log_prob) , (new_log_prob - old_log_prob)))
+            # _, old_log_prob, _ = old_pol.evaluate_actions(obs_th, acts_th)
+            # _, new_log_prob, _ = expert_pol.evaluate_actions(obs_th, acts_th)
+            # kl_div = torch.mean(torch.dot(torch.exp(new_log_prob) , (new_log_prob - old_log_prob)))
+
+            input_values, input_log_prob, input_entropy = self._old_policy.policy.evaluate_actions(obs_th, acts_th)
+            target_values, target_log_prob, target_entropy = self._expert_policy.policy.evaluate_actions(obs_th, acts_th)
             #kl_div = torch.mean(torch.dot(torch.exp(target_log_prob), target_log_prob - input_log_prob))
+            #kl_div = torch.mean(target_log_prob - input_log_prob)
+            kl_div = torch.sqrt(torch.mean((target_log_prob - input_log_prob) ** 2))
+
+            
         elif isinstance(old_pol, SACPolicy) and isinstance(expert_pol, SACPolicy):
             with torch.no_grad():
                 # old policy: get distribution params ⇒ log_prob
@@ -188,7 +195,8 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
                 mean_new, log_std_new, extras_new = expert_pol.actor.get_action_dist_params(obs_th)
                 _, new_log_prob = expert_pol.actor.action_dist.log_prob_from_params(mean_new, log_std_new, **extras_new)
 
-            kl_div = torch.mean(torch.dot(torch.exp(new_log_prob), (new_log_prob - old_log_prob)))
+            #kl_div = torch.mean(torch.dot(torch.exp(new_log_prob), (new_log_prob - old_log_prob)))
+            kl_div = torch.sqrt(torch.mean(new_log_prob - old_log_prob)** 2)
 
         else:
             raise ValueError(
@@ -196,7 +204,42 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             )
 
         return float(kl_div)
+    
+    # def evaluate_real_return(self, n_episodes=10, horizon=1000, deterministic=False) -> float:
+    #     """Evaluate the true expected return of the learned policy under the original environment.
+    #     This version provides more control over the evaluation process.
 
+    #     Args:
+    #         n_episodes: Number of episodes to evaluate
+    #         horizon: Maximum steps per episode
+    #         deterministic: Whether to use deterministic action selection
+
+    #     Returns:
+    #         The average return across episodes
+    #     """
+    #     assert self._old_policy is not None
+        
+    #     returns = []
+    #     env = self.venv
+        
+    #     for _ in range(n_episodes):
+    #         obs = env.reset()
+    #         episode_reward = 0
+    #         for t in range(horizon):
+    #             action, _ = self._old_policy.predict(obs, deterministic=deterministic)
+    #             obs, rewards, dones, infos = env.step(action)
+    #             episode_reward += rewards[0]  # Get the first reward since venv returns arrays
+    #             if dones[0]:  # Check if the first environment is done
+    #                 break
+    #         returns.append(episode_reward)
+        
+    #     mean_return = np.mean(returns)
+    #     return mean_return
+
+    # @property
+    # def evaluate_policy(self) -> float:
+    #     """Original evaluate_policy now calls evaluate_real_return"""
+    #     return self.evaluate_real_return()
 
     @property
     def evaluate_policy(self) -> float:
@@ -302,7 +345,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
                     trans = rollouts.generate_transitions_new(
                         self.behavior_policy,
                         self.venv,
-                        rng=np.random.default_rng(0),
+                        rng=np.random.default_rng(),
                         n_timesteps=n_timesteps,
                         starting_state=starting_s,
                         truncate=True,
@@ -333,13 +376,12 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         )
 
         _ = venv_with_cur_rwd_net.reset()
-
         if self.arglist.policy_model == 'PPO':
             new_policy = PPO(
                 policy=MlpPolicy,
                 env=venv_with_cur_rwd_net,
-                learning_rate=0.0005,
-                n_epochs=5,
+                learning_rate=self.arglist.lr,
+                n_epochs=self.arglist.ppo_n_epochs,
                 gamma=self.discount,
                 ent_coef=self.ent_coef,
                 verbose=0,
@@ -349,7 +391,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             new_policy = SAC(
                 policy="MlpPolicy",
                 env=venv_with_cur_rwd_net,
-                learning_rate=0.0005,
+                learning_rate=self.arglist.lr,
                 gamma=self.discount,
                 ent_coef=self.ent_coef,
                 verbose=0,
@@ -379,9 +421,9 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         # initialise the optimiser for the reward net
         # Do a complete pass on the demonstrations, i.e., sampling sufficient batches for performing GD.
         loss = torch.zeros(1).to(self.device)
-        avg_advantages = None
-        avg_reward_diff = None
-        l2_norm_reward_diff = None
+        likelihood = torch.zeros(1).to(self.device)
+        avg_reward_diff = torch.zeros(1).to(self.device)
+        l2_norm_reward_diff = torch.zeros(1).to(self.device)
 
         batch_iter = self._make_reward_train_batches()
 
@@ -390,19 +432,17 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             self.trajectory_buffer_v.clear()
 
         for batch in batch_iter:
-
-            # start_batch = time.time()
             # estimate the advantage function
             obs = batch["state"]
             acts = batch["action"]
             next_obs = batch["next_state"]
             dones = batch["done"]
-
             # estimated average estimated advantage function values
-            discounted_agent_return = self.reward_of_sample_traj_old_policy_cur_reward(starting_state=obs[0],
-                                                                            n_timesteps=obs.shape[0],
-                                                                            n_episodes=self.arglist.n_env
-                                                                            )
+            discounted_agent_return = self.reward_of_sample_traj_old_policy_cur_reward(
+                starting_state=obs[0],
+                n_timesteps=obs.shape[0],
+                n_episodes=self.arglist.n_episodes
+            )
   
             state_th, action_th, next_state_th, done_th = self._reward_net.preprocess(obs, acts, next_obs, dones)
 
@@ -412,9 +452,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             expert_rewards = self._reward_net(state_th, action_th, next_state_th, done_th)
 
             if self._old_reward_net is None:
-                reward_diff = expert_rewards - torch.ones(1).to(
-                    self.device)
-
+                reward_diff = expert_rewards - torch.ones(1).to(self.device)
             else:
                 # use `predict_th` for `self._old_reward_net` as its gradient is not needed
                 # in the first episode, diff=0 because the old reward equals the new one
@@ -422,28 +460,26 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             discounted_expert_return = torch.dot(expert_rewards, discounts[:len(expert_rewards)])
 
-            # TODO (optional):  calculate over all state-action pairs
+            # TODO (optional): calculate over all state-action pairs
             avg_reward_diff = torch.mean(reward_diff)
-            l2_norm_reward_diff = torch.norm(reward_diff, p=2)
-
-            # adaptive coef adjustment paremeters
+            l2_norm_reward_diff = torch.norm(reward_diff, p=2)            # adaptive coef adjustment paremeters
             # if avg_diff_coef (+) too high, reduce its coef
-            if avg_reward_diff > self.target_reward_diff * 1.5:
-                self.avg_diff_coef = self.avg_diff_coef / 2
-            elif avg_reward_diff < self.target_reward_diff / 1.5:
-                self.avg_diff_coef = self.avg_diff_coef * 2
+            if avg_reward_diff > self.target_reward_diff * self.arglist.target_ratio_upper:
+                self.avg_diff_coef = self.avg_diff_coef * self.arglist.coef_scale_down
+            elif avg_reward_diff < self.target_reward_diff * self.arglist.target_ratio_lower:
+                self.avg_diff_coef = self.avg_diff_coef * self.arglist.coef_scale_up
 
             self.avg_diff_coef = torch.tensor(self.avg_diff_coef)
-            self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=1e-3, max=1e2)
+            self.avg_diff_coef = torch.clamp(self.avg_diff_coef, min=self.arglist.coef_min, max=self.arglist.coef_max)
 
             # if l2_norm_reward_diff (-) too high, increase its coef
             if l2_norm_reward_diff > self.target_reward_l2_norm:
-                self.l2_norm_coef = self.l2_norm_coef * 1.2
+                self.l2_norm_coef = self.l2_norm_coef * self.arglist.l2_coef_scale_up
             elif l2_norm_reward_diff < self.target_reward_l2_norm:
-                self.l2_norm_coef = self.l2_norm_coef / 1.2
+                self.l2_norm_coef = self.l2_norm_coef * self.arglist.l2_coef_scale_down
 
             self.l2_norm_coef = torch.tensor(self.l2_norm_coef)
-            self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=1e-3, max=1e2)
+            self.l2_norm_coef = torch.clamp(self.l2_norm_coef, min=self.arglist.coef_min, max=self.arglist.coef_max)
 
             # loss backward
             likelihood = discounted_agent_return - discounted_expert_return
@@ -457,7 +493,6 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             writer.add_scalar("Batch/likelihood", likelihood.item(), self._global_step)
             writer.add_scalar("Batch/avg_reward_diff", avg_reward_diff.item(), self._global_step)
             writer.add_scalar("Batch/l2_norm_reward_diff", l2_norm_reward_diff.item(), self._global_step)
-
 
             self._global_step += 1
 
