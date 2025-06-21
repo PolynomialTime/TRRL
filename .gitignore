@@ -98,16 +98,10 @@ venv.bak/
 
 # mypy
 .mypy_cache/
-.dmypy.json
-dmypy.json
 
-# Tensorboard logs
-*/logs/
-**/logs/
-*.tfevents.*
-
-# Expert data numpy files
-expert_data/*.npy
-
-# Output directory
+# Project specific
+expert_data/
+oldexpert/
 output/
+
+para.md
