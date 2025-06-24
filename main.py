@@ -9,6 +9,7 @@ from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.ppo import policies, MlpPolicy
 from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import VecNormalize
 
 from imitation.algorithms import bc
 from imitation.policies.serialize import load_policy
@@ -44,17 +45,17 @@ def train_expert():
     elif arglist.policy_model.upper() == 'SAC':
         expert = SAC(
             policy="MlpPolicy",
+            batch_size=256,
             env=env,
-            seed=0,
-            batch_size=64,
-            ent_coef=arglist.ent_coef,
-            learning_rate=arglist.lr,
-            gamma=arglist.discount
+            learning_rate=3e-4,
+            ent_coef="auto",
+            verbose=0,
+            device='cpu',
         )
     else:
         raise ValueError(f"Unsupported policy model: {arglist.policy_model}")
-    
-    expert.learn(100_000)  # Note: change this to 100_000 to train a decent expert.
+
+    expert.learn(1000_000, progress_bar=True)  # Note: change this to 100_000 to train a decent expert.
     expert.save(f"./expert_data/{arglist.env_name}")
     return expert
 
@@ -64,9 +65,15 @@ def sample_expert_transitions(expert: policies):
     trajs = rollout.generate_trajectories(
         expert,
         env,
-        rollout.make_sample_until(min_timesteps=None, min_episodes=512),
+        rollout.make_sample_until(min_timesteps=None, min_episodes=1),
         rng=rng,
     )
+
+    total_reward = sum([sum(traj.rews) for traj in trajs])
+    print(f"Number of trajectories: {len(trajs)}")
+    print(f"Number of transitions: {sum([len(traj) for traj in trajs])}")
+    print(f"Average reward per trajectory: {total_reward / len(trajs)}")
+
     transitions = rollout.flatten_trajectories(trajs)
 
     torch.save(transitions, f"./expert_data/transitions_{arglist.env_name}.npy")
@@ -90,7 +97,7 @@ if __name__ == '__main__':    # make environment
         #parallel=True,
         #max_episode_steps=500,
     )
-
+    #env = VecNormalize(env, norm_obs=True, norm_reward=False)
     print(arglist.env_name)
     print(type(env))
 
@@ -128,7 +135,10 @@ if __name__ == '__main__':    # make environment
     print("Number of transitions in demonstrations: " + str(transitions.obs.shape[0]) + ".")
 
     # @truncate the length of expert transition
-    transitions = transitions[:arglist.transition_truncate_len]
+    if arglist.transition_truncate_len is not None and arglist.transition_truncate_len > 0:
+        transitions = transitions[:arglist.transition_truncate_len]
+    else:       
+        print("No truncation of transitions is applied.")
     #print(transitions)
 
     obs = transitions.obs

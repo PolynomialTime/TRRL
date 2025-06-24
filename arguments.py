@@ -16,13 +16,14 @@ def parse_args():
     # environment
     # Ant-v4, HalfCheetah-v4, Hopper-v3, Walker2d-v3, Pendulum-v1, Acrobot-v1, BipedalWalker-v3, FrozenLake-v1, CartPole-v1，MountainCar-v0
     parser.add_argument("--env_name", type=str, default="CartPole-v1", help="the environment")
-    parser.add_argument("--n_env", type=int, default=8, help="number of parallel envs in venvs")
+    parser.add_argument("--n_env", type=int, default=1, help="number of parallel envs in venvs")
+    parser.add_argument("--n_episodes", type=int, default=8, help="number of episodes for sample trajectory")
     parser.add_argument("--discount", type=float, default=0.99, help="discount factor")
     parser.add_argument("--ent_coef", type=float, default=0.01, help="entropy coefficient")
     parser.add_argument("--demo_batch_size", type=int, default=64, help="number of demos to generate")
     parser.add_argument("--policy_model", type=str, default='SAC', help="PPO or SAC for the policy model")
     parser.add_argument("--seed", type=int, default=0, help="random seed")
-
+    
     # core training parameters
     parser.add_argument("--max_epoch", type=int, default=100, help="maximum epoch length")
     parser.add_argument("--max_grad_norm", type=float, default=0.5, help="max gradient norm for clip")
@@ -33,6 +34,17 @@ def parse_args():
                         help="Langrange multiplier for the l2 norm of the difference between the old and new reward function")
     parser.add_argument("--l2_norm_upper_bound", type=float, default=0.1,
                         help="upper bound for the l2 norm of the difference between the old and new reward function")
+
+    parser.add_argument("--ppo_n_epochs", type=int, default=5, help="number of epochs for PPO updates")
+    parser.add_argument("--buffer_size", type=int, default=400, help="maximum buffer size per key for trajectory storage")
+    parser.add_argument("--coef_scale_up", type=float, default=1.2, help="scale up factor for coefficient adjustment")
+    parser.add_argument("--coef_scale_down", type=float, default=1.2, help="scale down factor for coefficient adjustment")
+    parser.add_argument("--l2_coef_scale_up", type=float, default=2, help="scale up factor for l2 coefficient adjustment")
+    parser.add_argument("--l2_coef_scale_down", type=float, default=2, help="scale down factor for l2 coefficient adjustment (1/1.2)")
+    parser.add_argument("--target_ratio_upper", type=float, default=1.5, help="upper ratio for target reward difference threshold")
+    parser.add_argument("--target_ratio_lower", type=float, default=1.5, help="lower ratio for target reward difference threshold (1/1.5)")
+    parser.add_argument("--coef_min", type=float, default=1e-3, help="minimum value for coefficient")
+    parser.add_argument("--coef_max", type=float, default=1e2, help="maximum value for coefficient")
 
     # adaptive coef adjustment paremeters
     parser.add_argument("--target_reward_diff", type=float, default=0.005,
@@ -45,7 +57,7 @@ def parse_args():
     parser.add_argument("--n_global_rounds", type=int, default=1000, help="number of global rounds")
     parser.add_argument("--n_policy_updates_per_round", type=int, default=100000,
                         help="number of policy udpates per global round")
-    parser.add_argument("--n_reward_updates_per_round", type=int, default=10,
+    parser.add_argument("--n_reward_updates_per_round", type=int, default=1,
                         help="number of reward udpates per global round")
 
     # checkpointing
