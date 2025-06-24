@@ -250,7 +250,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         assert self._old_policy is not None
         #assert isinstance(self._old_policy.policy, policies.ActorCriticPolicy)
 
-        mean_reward, std_reward = evaluation.evaluate_policy(model=self._old_policy, env=self.venv)
+        mean_reward, std_reward = evaluation.evaluate_policy(model=self._old_policy, env=self.venv, n_eval_episodes=20)
         return mean_reward
 
     def log_saving(self) -> None:
@@ -390,12 +390,14 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
         elif self.arglist.policy_model == 'SAC':
             new_policy = SAC(
                 policy="MlpPolicy",
+                batch_size=800,
                 env=venv_with_cur_rwd_net,
-                learning_rate=self.arglist.lr,
+                learning_rate=3e-4,
                 gamma=self.discount,
-                ent_coef=self.ent_coef,
+                ent_coef="auto",
                 verbose=0,
-                device='cpu'
+                device='cpu',
+                #learning_starts=0
             )
 
         new_policy.learn(self.n_policy_updates_per_round)
@@ -437,6 +439,9 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
             acts = batch["action"]
             next_obs = batch["next_state"]
             dones = batch["done"]
+            # 打印当前批次的时间步数（n_timesteps）
+            #print(f"[RewardUpdate] batch n_timesteps={obs.shape[0]}")
+            
             # estimated average estimated advantage function values
             discounted_agent_return = self.reward_of_sample_traj_old_policy_cur_reward(
                 starting_state=obs[0],
@@ -483,7 +488,7 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             # loss backward
             likelihood = discounted_agent_return - discounted_expert_return
-            loss = likelihood + self.avg_diff_coef * avg_reward_diff + self.l2_norm_coef * l2_norm_reward_diff
+            loss = torch.abs(likelihood) + self.l2_norm_coef * l2_norm_reward_diff #+ self.avg_diff_coef * avg_reward_diff 
 
             self._rwd_opt.zero_grad()
             loss.backward()
@@ -548,7 +553,13 @@ class PIRO(algo_base.DemonstrationAlgorithm[types.Transitions]):
 
             writer.add_scalar("Result/distance", distance, r)
             writer.add_scalar("Result/reward", reward, r)
-
+            # 验证在 reward_net 环境下的策略回报
+            rew_wrap = RewardVecEnvWrapper(self.venv, RwdFromRwdNet(self._reward_net))
+            rew_policy_mean, _ = evaluation.evaluate_policy(self._old_policy, rew_wrap, n_eval_episodes=10)
+            #writer.add_scalar("Result/reward_on_rwdnet", rew_policy_mean, r)
+            # 在终端打印本轮指标
+            #print(f"[Round {r}] distance: {distance:.4f}, reward (native): {reward:.2f}, reward_on_rwdnet: {rew_policy_mean:.2f}")
+            
             self.logger.record("round " + str(r), 'Distance: ' + str(distance) + '. Reward: ' + str(reward))
             self.logger.dump(step=10)
 
